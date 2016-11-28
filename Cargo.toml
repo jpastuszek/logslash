@@ -1,0 +1,8 @@
+[package]
+authors = ["Jakub Pastuszek <jpastuszek@gmail.com>"]
+name = "logslash"
+version = "0.1.0"
+
+[dependencies]
+futures = "0.1.6"
+tokio-core = "0.1.1"
