@@ -91,7 +91,7 @@ impl<T> From<IoError> for NomInputError<T> {
     }
 }
 
-fn nom_tcp_input<T>(handle: Handle, addr: &SocketAddr, parser: NomParser<T>) -> mpsc::Receiver<T> where T: Debug + 'static {
+fn tcp_nom_input<T>(name: &'static str, handle: Handle, addr: &SocketAddr, parser: NomParser<T>) -> mpsc::Receiver<T> where T: Debug + 'static {
     let (sender, receiver) = mpsc::channel(10);
     let listener_handle = handle.clone();
 
@@ -104,17 +104,17 @@ fn nom_tcp_input<T>(handle: Handle, addr: &SocketAddr, parser: NomParser<T>) -> 
                     future::ok::<T, NomInputError<T>>(message)
                 })
                 .send_all(tcp_stream.framed(NomCodec::new(parser)))
-                .map_err(|err| {
-                    println!("error while decoding input: {:?}", err);
+                .map_err(move |err| {
+                    println!("error while decoding input {}: {:?}", name, err);
                     ()})
-                .map(|(_sink, _stream)| {
-                    println!("connection closed by remote");
+                .map(move |(_sink, _stream)| {
+                    println!("connection closed by remote for input {}", name);
                     ()});
             handle.spawn(connection);
             Ok(())
         })
-        .map_err(|err| {
-            println!("error processing incomming connections: {:?}", err);
+        .map_err(move |err| {
+            println!("error processing incomming connections for input {}: {:?}", name, err);
             ()});
 
     listener_handle.spawn(listener);
@@ -128,15 +128,19 @@ named!(syslog_parser<&[u8], String>,
            terminated!(take_until!(&b" "[..]), tag!(b" ")),
            to_string));
 
+fn tcp_syslog_input(handle: Handle, addr: &SocketAddr) -> mpsc::Receiver<String> {
+    tcp_nom_input("syslog", handle, addr, syslog_parser)
+}
+
 fn main() {
     println!("Hello, world!");
 
     let mut event_loop = Core::new().unwrap();
     let handle = event_loop.handle();
 
-    let input = nom_tcp_input(handle, &"127.0.0.1:5514".parse().unwrap(), syslog_parser)
-        .for_each(|event| {
-            println!("got event: {}", event);
+    let input = tcp_syslog_input(handle, &"127.0.0.1:5514".parse().unwrap())
+        .for_each(|message| {
+            println!("got syslog message: {}", message);
             Ok(())
         });
 
