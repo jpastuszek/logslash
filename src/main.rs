@@ -6,6 +6,7 @@ extern crate nom;
 use std::net::SocketAddr;
 use std::io::Error as IoError;
 use std::io::ErrorKind as IoErrorKind;
+use std::fmt::Debug;
 
 use futures::Future;
 use futures::stream::Stream;
@@ -23,18 +24,14 @@ fn to_string(bytes: &[u8]) -> Result<String, std::string::FromUtf8Error> {
     String::from_utf8(bytes.to_owned())
 }
 
-// "(?m)<%{POSINT:priority}>(?:%{SYSLOGTIMESTAMP:timestamp}|%{TIMESTAMP_ISO8601:timestamp8601}) (?:%{SYSLOGFACILITY} )?(:?%{SYSLOGHOST:logsource} )?(?<program>[^ \[]+)(?:\[%{POSINT:pid}\])?: %{GREEDYDATA:message}"
-named!(syslog_parser<&[u8], String>,
-       map_res!(
-           terminated!(take_until!(&b" "[..]), tag!(b" ")),
-           to_string));
+type NomParser<T> = fn(&[u8]) -> IResult<&[u8], T>;
 
 struct NomCodec<T> {
-    parser: fn(&[u8]) -> IResult<&[u8], T>
+    parser: NomParser<T>
 }
 
 impl<T> NomCodec<T> {
-    fn new(parser: fn(&[u8]) -> IResult<&[u8], T>) -> NomCodec<T> {
+    fn new(parser: NomParser<T>) -> NomCodec<T> {
         NomCodec {
             parser: parser
         }
@@ -77,24 +74,24 @@ impl<T> Codec for NomCodec<T> {
 
 
 #[derive(Debug)]
-enum SyslogError {
-    SendError(String),
+enum NomInputError<T> {
+    SendError(T),
     IoError(IoError)
 }
 
-impl From<futures::sync::mpsc::SendError<std::string::String>> for SyslogError {
-    fn from(send_error: futures::sync::mpsc::SendError<std::string::String>) -> SyslogError {
-        SyslogError::SendError(send_error.into_inner())
+impl<T> From<futures::sync::mpsc::SendError<T>> for NomInputError<T> {
+    fn from(send_error: futures::sync::mpsc::SendError<T>) -> NomInputError<T> {
+        NomInputError::SendError(send_error.into_inner())
     }
 }
 
-impl From<IoError> for SyslogError {
-    fn from(io_error: IoError) -> SyslogError {
-        SyslogError::IoError(io_error)
+impl<T> From<IoError> for NomInputError<T> {
+    fn from(io_error: IoError) -> NomInputError<T> {
+        NomInputError::IoError(io_error)
     }
 }
 
-fn syslog_input(handle: Handle, addr: &SocketAddr) -> mpsc::Receiver<String> {
+fn nom_tcp_input<T>(handle: Handle, addr: &SocketAddr, parser: NomParser<T>) -> mpsc::Receiver<T> where T: Debug + 'static {
     let (sender, receiver) = mpsc::channel(10);
     let listener_handle = handle.clone();
 
@@ -104,11 +101,11 @@ fn syslog_input(handle: Handle, addr: &SocketAddr) -> mpsc::Receiver<String> {
             println!("connection from: {}", remote_addr);
             let connection = sender.clone()
                 .with(|message| {
-                    future::ok::<String, SyslogError>(message)
+                    future::ok::<T, NomInputError<T>>(message)
                 })
-                .send_all(tcp_stream.framed(NomCodec::new(syslog_parser)))
+                .send_all(tcp_stream.framed(NomCodec::new(parser)))
                 .map_err(|err| {
-                    println!("error while decoding syslog: {:?}", err);
+                    println!("error while decoding input: {:?}", err);
                     ()})
                 .map(|(_sink, _stream)| {
                     println!("connection closed by remote");
@@ -125,13 +122,19 @@ fn syslog_input(handle: Handle, addr: &SocketAddr) -> mpsc::Receiver<String> {
     receiver
 }
 
+// "(?m)<%{POSINT:priority}>(?:%{SYSLOGTIMESTAMP:timestamp}|%{TIMESTAMP_ISO8601:timestamp8601}) (?:%{SYSLOGFACILITY} )?(:?%{SYSLOGHOST:logsource} )?(?<program>[^ \[]+)(?:\[%{POSINT:pid}\])?: %{GREEDYDATA:message}"
+named!(syslog_parser<&[u8], String>,
+       map_res!(
+           terminated!(take_until!(&b" "[..]), tag!(b" ")),
+           to_string));
+
 fn main() {
     println!("Hello, world!");
 
     let mut event_loop = Core::new().unwrap();
     let handle = event_loop.handle();
 
-    let input = syslog_input(handle, &"127.0.0.1:5514".parse().unwrap())
+    let input = nom_tcp_input(handle, &"127.0.0.1:5514".parse().unwrap(), syslog_parser)
         .for_each(|event| {
             println!("got event: {}", event);
             Ok(())
