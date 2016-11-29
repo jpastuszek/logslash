@@ -19,49 +19,40 @@ use tokio_core::reactor::{Core, Handle};
 
 use nom::IResult;
 
+fn to_string(bytes: &[u8]) -> Result<String, std::string::FromUtf8Error> {
+    String::from_utf8(bytes.to_owned())
+}
+
 // "(?m)<%{POSINT:priority}>(?:%{SYSLOGTIMESTAMP:timestamp}|%{TIMESTAMP_ISO8601:timestamp8601}) (?:%{SYSLOGFACILITY} )?(:?%{SYSLOGHOST:logsource} )?(?<program>[^ \[]+)(?:\[%{POSINT:pid}\])?: %{GREEDYDATA:message}"
-named!(syslog_parser, terminated!(take_until!(&b" "[..]), tag!(b" ")));
+named!(syslog_parser<&[u8], String>,
+       map_res!(
+           terminated!(take_until!(&b" "[..]), tag!(b" ")),
+           to_string));
 
-struct SyslogCodec {
+struct NomCodec<T> {
+    parser: fn(&[u8]) -> IResult<&[u8], T>
 }
 
-#[derive(Debug)]
-enum SyslogError {
-    SendError(String),
-    IoError(IoError)
-}
-
-impl From<futures::sync::mpsc::SendError<std::string::String>> for SyslogError {
-    fn from(send_error: futures::sync::mpsc::SendError<std::string::String>) -> SyslogError {
-        SyslogError::SendError(send_error.into_inner())
+impl<T> NomCodec<T> {
+    fn new(parser: fn(&[u8]) -> IResult<&[u8], T>) -> NomCodec<T> {
+        NomCodec {
+            parser: parser
+        }
     }
 }
 
-impl From<IoError> for SyslogError {
-    fn from(io_error: IoError) -> SyslogError {
-        SyslogError::IoError(io_error)
-    }
-}
-
-impl Codec for SyslogCodec {
-    type In = String; // for now
+impl<T> Codec for NomCodec<T> {
+    type In = T;
     type Out = ();
 
     fn decode(&mut self, buf: &mut EasyBuf) -> Result<Option<Self::In>, IoError> {
         let have_bytes = buf.len();
-        //Ok(Some(String::from_utf8_lossy(buf.drain_to(have_bytes).as_slice()).into_owned()))
-
-        //let result: nom::IResult<_, Result<T, _>, u32> = opt_res!(buf.as_slice(), complete!(syslog_parser));
-        // unwrap here is safe as complete! eliminates Incomplete variant and opt_res! remaining Error variant
-        //result.unwrap().1.expect("parsed syslog message")
 
         let mut consumed = 0;
-        let result = match syslog_parser(buf.as_slice()) {
+        let result = match (self.parser)(buf.as_slice()) {
             IResult::Done(input_left, output) => {
-                println!("parsed out: {:?}", output);
-                // consume data
                 consumed = have_bytes - input_left.len();
-                Ok(Some(String::from_utf8_lossy(output).into_owned()))
+                Ok(Some(output))
             }
             IResult::Error(err) => {
                 println!("err: {}", err);
@@ -84,6 +75,25 @@ impl Codec for SyslogCodec {
     }
 }
 
+
+#[derive(Debug)]
+enum SyslogError {
+    SendError(String),
+    IoError(IoError)
+}
+
+impl From<futures::sync::mpsc::SendError<std::string::String>> for SyslogError {
+    fn from(send_error: futures::sync::mpsc::SendError<std::string::String>) -> SyslogError {
+        SyslogError::SendError(send_error.into_inner())
+    }
+}
+
+impl From<IoError> for SyslogError {
+    fn from(io_error: IoError) -> SyslogError {
+        SyslogError::IoError(io_error)
+    }
+}
+
 fn syslog_input(handle: Handle, addr: &SocketAddr) -> mpsc::Receiver<String> {
     let (sender, receiver) = mpsc::channel(10);
     let listener_handle = handle.clone();
@@ -96,7 +106,7 @@ fn syslog_input(handle: Handle, addr: &SocketAddr) -> mpsc::Receiver<String> {
                 .with(|message| {
                     future::ok::<String, SyslogError>(message)
                 })
-                .send_all(tcp_stream.framed(SyslogCodec{}))
+                .send_all(tcp_stream.framed(NomCodec::new(syslog_parser)))
                 .map_err(|err| {
                     println!("error while decoding syslog: {:?}", err);
                     ()})
