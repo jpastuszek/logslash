@@ -20,10 +20,6 @@ use tokio_core::reactor::{Core, Handle};
 
 use nom::IResult;
 
-fn to_string(bytes: &[u8]) -> Result<String, std::string::FromUtf8Error> {
-    String::from_utf8(bytes.to_owned())
-}
-
 type NomParser<T> = fn(&[u8]) -> IResult<&[u8], T>;
 
 struct NomCodec<T> {
@@ -122,13 +118,42 @@ fn tcp_nom_input<T>(name: &'static str, handle: Handle, addr: &SocketAddr, parse
     receiver
 }
 
-// "(?m)<%{POSINT:priority}>(?:%{SYSLOGTIMESTAMP:timestamp}|%{TIMESTAMP_ISO8601:timestamp8601}) (?:%{SYSLOGFACILITY} )?(:?%{SYSLOGHOST:logsource} )?(?<program>[^ \[]+)(?:\[%{POSINT:pid}\])?: %{GREEDYDATA:message}"
-named!(syslog_parser<&[u8], String>,
-       map_res!(
-           terminated!(take_until!(&b" "[..]), tag!(b" ")),
-           to_string));
+// move to own file
+use std::str::{from_utf8, Utf8Error};
+use std::num::ParseIntError;
 
-fn tcp_syslog_input(handle: Handle, addr: &SocketAddr) -> mpsc::Receiver<String> {
+#[derive(Debug)]
+struct SyslogMessage {
+    facility: u8,
+    severity: u8,
+}
+
+fn str(bytes: &[u8]) -> Result<&str, Utf8Error> {
+    from_utf8(bytes)
+}
+
+enum InputIntError {
+    Utf8Error(Utf8Error),
+    ParseIntError(ParseIntError)
+}
+
+fn number_u8(bytes: &[u8]) -> Result<u8, InputIntError> {
+    str(bytes).map_err(InputIntError::Utf8Error)
+        .and_then(|s| s.parse().map_err(InputIntError::ParseIntError))
+}
+
+// "(?m)<%{POSINT:priority}>(?:%{SYSLOGTIMESTAMP:timestamp}|%{TIMESTAMP_ISO8601:timestamp8601}) (?:%{SYSLOGFACILITY} )?(:?%{SYSLOGHOST:logsource} )?(?<program>[^ \[]+)(?:\[%{POSINT:pid}\])?: %{GREEDYDATA:message}"
+
+named!(syslog_parser<&[u8], SyslogMessage>, chain!(
+    priority: delimited!(tag!(b"<"),
+                         map_res!(take_until!(&b">"[..]), number_u8),
+                         tag!(b">")),
+    || SyslogMessage {
+        facility: priority >> 3,
+        severity: priority - (priority >> 3 << 3)
+    }));
+
+fn tcp_syslog_input(handle: Handle, addr: &SocketAddr) -> mpsc::Receiver<SyslogMessage> {
     tcp_nom_input("syslog", handle, addr, syslog_parser)
 }
 
@@ -140,7 +165,7 @@ fn main() {
 
     let input = tcp_syslog_input(handle, &"127.0.0.1:5514".parse().unwrap())
         .for_each(|message| {
-            println!("got syslog message: {}", message);
+            println!("got syslog message: {:?}", message);
             Ok(())
         });
 
