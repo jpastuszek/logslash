@@ -1,7 +1,8 @@
 use std::net::SocketAddr;
 use std::io::Error as IoError;
 use std::io::ErrorKind as IoErrorKind;
-use std::fmt::Debug;
+use std::fmt::{self, Debug, Display};
+use std::error::Error;
 
 use futures::Future;
 use futures::stream::Stream;
@@ -13,7 +14,7 @@ use tokio_core::io::{Io, Codec, EasyBuf};
 use tokio_core::net::TcpListener;
 use tokio_core::reactor::Handle;
 
-use nom::IResult;
+use nom::{IResult, ErrorKind};
 
 pub type NomParser<T> = fn(&[u8]) -> IResult<&[u8], T, &'static str>;
 
@@ -42,12 +43,13 @@ impl<T> Codec for NomCodec<T> {
                 consumed = have_bytes - input_left.len();
                 Ok(Some(output))
             }
-            IResult::Error(err) => {
-                println!("err: {}", err);
+            IResult::Error(ErrorKind::Custom(err)) => {
                 Err(IoError::new(IoErrorKind::InvalidInput, err))
             }
+            IResult::Error(_) => {
+                Err(IoError::new(IoErrorKind::InvalidData, "unexpected parser error"))
+            }
             IResult::Incomplete(_) => {
-                println!("incomplete");
                 Ok(None)
             }
         };
@@ -63,22 +65,46 @@ impl<T> Codec for NomCodec<T> {
     }
 }
 
-
 #[derive(Debug)]
-enum NomInputError<T> {
+enum NomInputError<T: Debug> {
     SendError(T),
     IoError(IoError)
 }
 
-impl<T> From<mpsc::SendError<T>> for NomInputError<T> {
+impl<T: Debug> From<mpsc::SendError<T>> for NomInputError<T> {
     fn from(send_error: mpsc::SendError<T>) -> NomInputError<T> {
         NomInputError::SendError(send_error.into_inner())
     }
 }
 
-impl<T> From<IoError> for NomInputError<T> {
+impl<T: Debug> From<IoError> for NomInputError<T> {
     fn from(io_error: IoError) -> NomInputError<T> {
         NomInputError::IoError(io_error)
+    }
+}
+
+impl<T: Debug> Display for NomInputError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            NomInputError::SendError(ref t) => write!(f, "{}: {:?}", self.description(), t),
+            NomInputError::IoError(ref io) => match io.get_ref() {
+                Some(reason) => write!(f, "{}: {}", self.description(), reason),
+                None => write!(f, "{}", self.description())
+            }
+        }
+    }
+}
+
+impl<T: Debug> Error for NomInputError<T> {
+    fn description(&self) -> &str {
+        match *self {
+            NomInputError::SendError(_) => "Failed to push processed input message down the pipeline",
+            NomInputError::IoError(ref io) => match io.kind() {
+                IoErrorKind::InvalidInput => "Failed to parse input",
+                IoErrorKind::InvalidData => "Failed to apply parser",
+                _ => "Input error"
+            }
+        }
     }
 }
 
@@ -89,23 +115,23 @@ pub fn tcp_nom_input<T>(name: &'static str, handle: Handle, addr: &SocketAddr, p
     let listener = TcpListener::bind(addr, &handle).expect("bound TCP socket")
         .incoming()
         .for_each(move |(tcp_stream, remote_addr)| {
-            println!("connection from: {}", remote_addr);
+            println!("Connection from: {}", remote_addr);
             let connection = sender.clone()
                 .with(|message| {
                     future::ok::<T, NomInputError<T>>(message)
                 })
                 .send_all(tcp_stream.framed(NomCodec::new(parser)))
                 .map_err(move |err| {
-                    println!("error while decoding input {}: {:?}", name, err);
+                    println!("Error while decoding input {}: {}", name, err);
                     ()})
                 .map(move |(_sink, _stream)| {
-                    println!("connection closed by remote for input {}", name);
+                    println!("Connection closed by remote for input {}", name);
                     ()});
             handle.spawn(connection);
             Ok(())
         })
         .map_err(move |err| {
-            println!("error processing incomming connections for input {}: {:?}", name, err);
+            println!("Error processing incomming connections for input {}: {:?}", name, err);
             ()});
 
     listener_handle.spawn(listener);

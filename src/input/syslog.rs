@@ -31,9 +31,9 @@ named!(syslog_parser_full<&[u8], SyslogMessage>, chain!(
 
 pub fn syslog_parser(input: &[u8]) -> IResult<&[u8], SyslogMessage, &'static str> {
     syslog_parser_full(input).map_err(|err| ErrorKind::Custom(match err {
-            ErrorKind::Custom(1) => "bad syslog priority tag format",
-            ErrorKind::Custom(99) => "bad syslog message payload",
-            _ => "syslog parser did not match"
+            ErrorKind::Custom(1) => "Bad syslog priority tag format",
+            ErrorKind::Custom(99) => "Bad syslog message payload",
+            _ => "Syslog parser did not match"
     }))
 }
 
@@ -57,12 +57,12 @@ mod parser_tests {
     #[test]
     fn priority_error() {
         let err = syslog_parser(b"<16x5>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - foobar\n").unwrap_err();
-        assert_matches!(err, ErrorKind::Custom("bad syslog priority tag format"));
+        assert_matches!(err, ErrorKind::Custom("Bad syslog priority tag format"));
     }
 
     #[test]
     fn message_error() {
         let err = syslog_parser(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - \xc3\x28\n").unwrap_err();
-        assert_matches!(err, ErrorKind::Custom("bad syslog message payload"));
+        assert_matches!(err, ErrorKind::Custom("Bad syslog message payload"));
     }
 }
