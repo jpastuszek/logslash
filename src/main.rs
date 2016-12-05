@@ -6,6 +6,7 @@ extern crate nom;
 extern crate error_chain;
 #[macro_use]
 extern crate assert_matches;
+extern crate chrono;
 
 mod input;
 

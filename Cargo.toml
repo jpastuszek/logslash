@@ -5,6 +5,7 @@ version = "0.1.0"
 
 [dependencies]
 assert_matches = "1.0.1"
+chrono = "0.2.25"
 error-chain = "0.7.1"
 futures = "0.1.6"
 nom = "2.0.0"
