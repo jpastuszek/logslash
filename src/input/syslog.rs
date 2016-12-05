@@ -28,11 +28,12 @@ named!(syslog_parser_full<&[u8], SyslogMessage>, chain!(
         severity: priority - (priority >> 3 << 3),
         message: message.to_owned()
     }));
+
 pub fn syslog_parser(input: &[u8]) -> IResult<&[u8], SyslogMessage, &'static str> {
     syslog_parser_full(input).map_err(|err| ErrorKind::Custom(match err {
             ErrorKind::Custom(1) => "bad syslog priority tag format",
             ErrorKind::Custom(99) => "bad syslog message payload",
-            _ => "unknown syslog parser error"
+            _ => "syslog parser did not match"
     }))
 }
 
