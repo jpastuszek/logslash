@@ -2,6 +2,10 @@ extern crate futures;
 extern crate tokio_core;
 #[macro_use]
 extern crate nom;
+#[macro_use]
+extern crate error_chain;
+#[macro_use]
+extern crate assert_matches;
 
 mod input;
 

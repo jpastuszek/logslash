@@ -15,7 +15,7 @@ use tokio_core::reactor::Handle;
 
 use nom::IResult;
 
-pub type NomParser<T> = fn(&[u8]) -> IResult<&[u8], T>;
+pub type NomParser<T> = fn(&[u8]) -> IResult<&[u8], T, &'static str>;
 
 struct NomCodec<T> {
     parser: NomParser<T>
@@ -112,4 +112,3 @@ pub fn tcp_nom_input<T>(name: &'static str, handle: Handle, addr: &SocketAddr, p
 
     receiver
 }
-
