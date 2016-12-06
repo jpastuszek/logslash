@@ -7,14 +7,14 @@ use futures::sync::mpsc;
 use nom::{ErrorKind, rest};
 
 #[derive(Debug)]
-pub struct SyslogStructuredElement {
+pub struct StructuredElement {
     pub id: String,
     pub params: String // TODO
 }
 
 #[derive(Debug, Default)]
-pub struct SyslogStructuredData {
-    pub elements: Vec<SyslogStructuredElement>
+pub struct StructuredData {
+    pub elements: Vec<StructuredElement>
 }
 
 #[derive(Debug)]
@@ -26,7 +26,7 @@ pub struct SyslogMessage {
     pub app_name: Option<String>,
     pub proc_id: Option<String>,
     pub msg_id: Option<String>,
-    pub structured_data: SyslogStructuredData,
+    pub structured_data: StructuredData,
     pub message: Option<String>
 }
 
@@ -54,13 +54,13 @@ named!(app_name<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(4), opt_s
 named!(proc_id<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(5), opt_str));
 named!(msg_id<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(6), opt_str));
 
-named!(structured_data_element<&[u8], SyslogStructuredElement>, return_error!(ErrorKind::Custom(11), do_parse!(
+named!(structured_data_element<&[u8], StructuredElement>, return_error!(ErrorKind::Custom(11), do_parse!(
         tag!(b"[") >>
         id: map_res!(take_until!(&b" "[..]), parse::string) >>
         tag!(b" ") >>
         params: map_res!(take_until!(&b"]"[..]), parse::string) >>
         tag!(b"]") >>
-        (SyslogStructuredElement {
+        (StructuredElement {
             id: id.to_owned(),
             params: params.to_owned()
         })
@@ -68,13 +68,13 @@ named!(structured_data_element<&[u8], SyslogStructuredElement>, return_error!(Er
 
 named!(sp_or_eof<&[u8], &[u8]>, alt!(eof!() | tag!(b" ")));
 
-named!(structured_data<&[u8], SyslogStructuredData>, do_parse!(
+named!(structured_data<&[u8], StructuredData>, do_parse!(
         minus: opt!(tag!(b"-")) >>
         res: cond_with_error!(minus.is_none(), many_till!(
             call!(structured_data_element),
             peek!(call!(sp_or_eof))
         )) >>
-        (SyslogStructuredData {
+        (StructuredData {
             elements: res.map(|r| r.0).unwrap_or(Vec::new())
         })
     ));
