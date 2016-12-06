@@ -2,14 +2,17 @@ use super::nom::tcp_nom_input;
 use super::parse;
 pub use super::parse::Timestamp;
 use std::net::SocketAddr;
+use std::collections::HashMap;
 use tokio_core::reactor::Handle;
 use futures::sync::mpsc;
 use nom::{ErrorKind, rest};
 
+// TODO: use &str instead of String; make OwnedSyslogMessage variant that is Send
+
 #[derive(Debug)]
 pub struct StructuredElement {
     pub id: String,
-    pub params: String // TODO
+    pub params: HashMap<String, String>
 }
 
 #[derive(Debug, Default)]
@@ -19,6 +22,7 @@ pub struct StructuredData {
 
 #[derive(Debug)]
 pub struct SyslogMessage {
+    // TODO: enum facility and severity
     pub facility: u8,
     pub severity: u8,
     pub timestamp: Timestamp,
@@ -54,15 +58,23 @@ named!(app_name<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(4), opt_s
 named!(proc_id<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(5), opt_str));
 named!(msg_id<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(6), opt_str));
 
+named!(structured_data_param<&[u8], (&str, &str)>, return_error!(ErrorKind::Custom(12), do_parse!(
+        name: map_res!(take_until!(&b"="[..]), parse::string) >>
+        tag!(b"=\"") >>
+        value: map_res!(take_until!(&b"\""[..]), parse::string) >> //TODO escap!
+        tag!(b"\"") >>
+        (name, value)
+    )));
+
 named!(structured_data_element<&[u8], StructuredElement>, return_error!(ErrorKind::Custom(11), do_parse!(
         tag!(b"[") >>
         id: map_res!(take_until!(&b" "[..]), parse::string) >>
         tag!(b" ") >>
-        params: map_res!(take_until!(&b"]"[..]), parse::string) >>
+        params: separated_list!(tag!(b" "), call!(structured_data_param)) >>
         tag!(b"]") >>
         (StructuredElement {
             id: id.to_owned(),
-            params: params.to_owned()
+            params: params.into_iter().map(|(k, v)| (k.to_owned(), v.to_owned())).collect()
         })
     )));
 
@@ -79,6 +91,7 @@ named!(structured_data<&[u8], StructuredData>, do_parse!(
         })
     ));
 
+// TODO: BOM support and octets
 named!(message<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(99), do_parse!(
         sp: call!(sp_or_eof) >>
         ret: cond_with_error!(sp == b" ", map_res!(rest, parse::string)) >>
@@ -237,7 +250,16 @@ mod syslog_rfc5424_tests {
     fn structured_data_single() {
         let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"] foo\nbar").unwrap();
         assert!(i.is_empty());
-        //assert_eq!(o.structured_data, Some(&b""[..]));
+
+        assert_eq!(o.structured_data.elements.len(), 1);
+
+        let e = o.structured_data.elements.get(0).unwrap();
+        assert_eq!(e.id, "exampleSDID@32473");
+        assert_eq!(e.params.len(), 3);
+        assert_eq!(e.params["iut"], "3".to_owned());
+        assert_eq!(e.params["eventSource"], "Application".to_owned());
+        assert_eq!(e.params["eventID"], "1011".to_owned());
+
         assert_eq!(o.message, Some("foo\nbar".to_owned()));
     }
 
@@ -245,7 +267,20 @@ mod syslog_rfc5424_tests {
     fn structured_data_multi() {
         let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"] foo\nbar").unwrap();
         assert!(i.is_empty());
-        //assert_eq!(o.structured_data, Some(&b""[..]));
+        assert_eq!(o.structured_data.elements.len(), 2);
+
+        let e = o.structured_data.elements.get(0).unwrap();
+        assert_eq!(e.id, "exampleSDID@32473");
+        assert_eq!(e.params.len(), 3);
+        assert_eq!(e.params["iut"], "3".to_owned());
+        assert_eq!(e.params["eventSource"], "Application".to_owned());
+        assert_eq!(e.params["eventID"], "1011".to_owned());
+
+        let e = o.structured_data.elements.get(1).unwrap();
+        assert_eq!(e.id, "examplePriority@32473");
+        assert_eq!(e.params.len(), 1);
+        assert_eq!(e.params["class"], "high".to_owned());
+
         assert_eq!(o.message, Some("foo\nbar".to_owned()));
     }
 
@@ -253,7 +288,21 @@ mod syslog_rfc5424_tests {
     fn structured_data_multi_no_message() {
         let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"]").unwrap();
         assert!(i.is_empty());
-        //assert_eq!(o.structured_data, Some(&b""[..]));
+
+        assert_eq!(o.structured_data.elements.len(), 2);
+
+        let e = o.structured_data.elements.get(0).unwrap();
+        assert_eq!(e.id, "exampleSDID@32473");
+        assert_eq!(e.params.len(), 3);
+        assert_eq!(e.params["iut"], "3".to_owned());
+        assert_eq!(e.params["eventSource"], "Application".to_owned());
+        assert_eq!(e.params["eventID"], "1011".to_owned());
+
+        let e = o.structured_data.elements.get(1).unwrap();
+        assert_eq!(e.id, "examplePriority@32473");
+        assert_eq!(e.params.len(), 1);
+        assert_eq!(e.params["class"], "high".to_owned());
+
         assert_eq!(o.message, None);
     }
 
