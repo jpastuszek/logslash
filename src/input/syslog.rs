@@ -7,6 +7,17 @@ use futures::sync::mpsc;
 use nom::{ErrorKind, rest};
 
 #[derive(Debug)]
+pub struct SyslogStructuredElement {
+    pub id: String,
+    pub params: String // TODO
+}
+
+#[derive(Debug, Default)]
+pub struct SyslogStructuredData {
+    pub elements: Vec<SyslogStructuredElement>
+}
+
+#[derive(Debug)]
 pub struct SyslogMessage {
     pub facility: u8,
     pub severity: u8,
@@ -15,6 +26,7 @@ pub struct SyslogMessage {
     pub app_name: Option<String>,
     pub proc_id: Option<String>,
     pub msg_id: Option<String>,
+    pub structured_data: SyslogStructuredData,
     pub message: Option<String>
 }
 
@@ -42,17 +54,34 @@ named!(app_name<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(4), opt_s
 named!(proc_id<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(5), opt_str));
 named!(msg_id<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(6), opt_str));
 
-named!(structured_data<&[u8], Option<&[u8]> >, return_error!(ErrorKind::Custom(7), map!(
-        alt!(
-            tag!(b"-") |
-            take_until_and_consume!(&b"]"[..])
-        ),
-        |b| if b == b"-" { None } else { Some(b)}
+named!(structured_data_element<&[u8], SyslogStructuredElement>, return_error!(ErrorKind::Custom(11), do_parse!(
+        tag!(b"[") >>
+        id: map_res!(take_until!(&b" "[..]), parse::string) >>
+        tag!(b" ") >>
+        params: map_res!(take_until!(&b"]"[..]), parse::string) >>
+        tag!(b"]") >>
+        (SyslogStructuredElement {
+            id: id.to_owned(),
+            params: params.to_owned()
+        })
     )));
 
+named!(sp_or_eof<&[u8], &[u8]>, alt!(eof!() | tag!(b" ")));
+
+named!(structured_data<&[u8], SyslogStructuredData>, do_parse!(
+        minus: opt!(tag!(b"-")) >>
+        res: cond_with_error!(minus.is_none(), many_till!(
+            call!(structured_data_element),
+            peek!(call!(sp_or_eof))
+        )) >>
+        (SyslogStructuredData {
+            elements: res.map(|r| r.0).unwrap_or(Vec::new())
+        })
+    ));
+
 named!(message<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(99), do_parse!(
-        sp: opt!(tag!(b" ")) >>
-        ret: cond_with_error!(sp.is_some(), map_res!(rest, parse::string)) >>
+        sp: call!(sp_or_eof) >>
+        ret: cond_with_error!(sp == b" ", map_res!(rest, parse::string)) >>
         (ret)
     )));
 
@@ -73,6 +102,7 @@ named!(pub syslog_rfc5424<&[u8], SyslogMessage>, do_parse!(
         app_name: app_name.map(|s| s.to_owned()),
         proc_id: proc_id.map(|s| s.to_owned()),
         msg_id: msg_id.map(|s| s.to_owned()),
+        structured_data: structured_data,
         message: message.map(|s| s.to_owned())
     })));
 
@@ -201,6 +231,30 @@ mod syslog_rfc5424_tests {
     fn app_name_error() {
         let err = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com \n").unwrap_err();
         assert_matches!(err, ErrorKind::Custom("Expected syslog application name"));
+    }
+
+    #[test]
+    fn structured_data_single() {
+        let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"] foo\nbar").unwrap();
+        assert!(i.is_empty());
+        //assert_eq!(o.structured_data, Some(&b""[..]));
+        assert_eq!(o.message, Some("foo\nbar".to_owned()));
+    }
+
+    #[test]
+    fn structured_data_multi() {
+        let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"] foo\nbar").unwrap();
+        assert!(i.is_empty());
+        //assert_eq!(o.structured_data, Some(&b""[..]));
+        assert_eq!(o.message, Some("foo\nbar".to_owned()));
+    }
+
+    #[test]
+    fn structured_data_multi_no_message() {
+        let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"]").unwrap();
+        assert!(i.is_empty());
+        //assert_eq!(o.structured_data, Some(&b""[..]));
+        assert_eq!(o.message, None);
     }
 
     #[test]
