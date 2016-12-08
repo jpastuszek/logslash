@@ -37,20 +37,20 @@ pub struct SyslogMessage {
 // "(?m)<%{POSINT:priority}>(?:%{SYSLOGTIMESTAMP:timestamp}|%{TIMESTAMP_ISO8601:timestamp8601}) (?:%{SYSLOGFACILITY} )?(:?%{SYSLOGHOST:logsource} )?(?<program>[^ \[]+)(?:\[%{POSINT:pid}\])?: %{GREEDYDATA:message}"
 
 named!(priority<&[u8], u8>, return_error!(ErrorKind::Custom(1),
-    delimited!(tag!(b"<"), map_res!(take_until!(&b">1"[..]), parse::int_u8), tag!(b">1 "))));
+    delimited!(tag!(b"<"), map_res!(take_until!(">1"), parse::int_u8), tag!(b">1 "))));
 
 named!(timestamp<&[u8], Timestamp>, return_error!(ErrorKind::Custom(2),
-    terminated!(map_res!(take_until!(&b" "[..]), parse::timestamp), tag!(b" "))));
+    terminated!(map_res!(take_until!(" "), parse::timestamp), tag!(b" "))));
 
 named!(hostname<&[u8], &str>, return_error!(ErrorKind::Custom(3),
     do_parse!(
         not!(tag!("- ")) >>
-        h: terminated!(map_res!(take_until!(&b" "[..]), parse::string), tag!(b" ")) >>
+        h: terminated!(map_res!(take_until!(" "), parse::string), tag!(b" ")) >>
         (h)
     )));
 
 named!(opt_str<&[u8], Option<&str> >, map!(
-        terminated!(map_res!(take_until!(&b" "[..]), parse::string), tag!(b" ")),
+        terminated!(map_res!(take_until!(" "), parse::string), tag!(b" ")),
         |s| if s == "-" { None } else { Some(s) }
     ));
 
@@ -58,23 +58,28 @@ named!(app_name<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(4), opt_s
 named!(proc_id<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(5), opt_str));
 named!(msg_id<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(6), opt_str));
 
-named!(structured_data_param<&[u8], (&str, &str)>, return_error!(ErrorKind::Custom(12), do_parse!(
-        name: map_res!(take_until!(&b"="[..]), parse::string) >>
+named!(structured_data_param<&[u8], (&str, String)>, return_error!(ErrorKind::Custom(12), do_parse!(
+        name: map_res!(take_until!("="), parse::string) >>
         tag!(b"=\"") >>
-        value: map_res!(take_until!(&b"\""[..]), parse::string) >> //TODO escap!
+        value: map!(
+            map_res!(escaped!(is_not!("\"\\"), '\\', is_a!("\"\\]")), parse::string),
+            |s: &str|
+                s.replace("\\\"", "\"")
+                .replace("\\\\", "\\")
+                .replace("\\]", "]")) >>
         tag!(b"\"") >>
         (name, value)
     )));
 
 named!(structured_data_element<&[u8], StructuredElement>, return_error!(ErrorKind::Custom(11), do_parse!(
         tag!(b"[") >>
-        id: map_res!(take_until!(&b" "[..]), parse::string) >>
+        id: map_res!(take_until!(" "), parse::string) >>
         tag!(b" ") >>
         params: separated_list!(tag!(b" "), call!(structured_data_param)) >>
         tag!(b"]") >>
         (StructuredElement {
             id: id.to_owned(),
-            params: params.into_iter().map(|(k, v)| (k.to_owned(), v.to_owned())).collect()
+            params: params.into_iter().map(|(k, v)| (k.to_owned(), v)).collect()
         })
     )));
 
@@ -121,7 +126,7 @@ named!(pub syslog_rfc5424<&[u8], SyslogMessage>, do_parse!(
 
 named!(pub syslog_rfc5425_frame<&[u8], &[u8]>, do_parse!(
         msg_len: return_error!(ErrorKind::Custom(1),
-           terminated!(map_res!(take_until!(&b" "[..]), parse::int_u8), tag!(" "))) >>
+           terminated!(map_res!(take_until!(" "), parse::int_u8), tag!(" "))) >>
         syslog_msg: take!(msg_len) >>
         (syslog_msg)
     ));
@@ -142,8 +147,11 @@ pub mod simple_errors {
             ErrorKind::Custom(5) => "Expected syslog process ID",
             ErrorKind::Custom(6) => "Expected syslog message ID",
             ErrorKind::Custom(7) => "Expected valid syslog structured data",
+            ErrorKind::Custom(11) => "Failed to parse structured data element",
+            ErrorKind::Custom(12) => "Failed to parse structured data parameter",
             ErrorKind::Custom(99) => "Bad syslog message payload",
-            _ => "Syslog parser did not match"
+            //_ => "Syslog parser did not match"
+            e => panic!("{:?}", e)
         }))
     }
 
@@ -280,6 +288,28 @@ mod syslog_rfc5424_tests {
         assert_eq!(e.id, "examplePriority@32473");
         assert_eq!(e.params.len(), 1);
         assert_eq!(e.params["class"], "high".to_owned());
+
+        assert_eq!(o.message, Some("foo\nbar".to_owned()));
+    }
+
+    #[test]
+    fn structured_data_multi_escapes() {
+        let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Appli\\\\catio\\]n\" eventID=\"1011\"][examplePriority@32473 class=\"hi\\\"gh\"] foo\nbar").unwrap();
+
+        assert!(i.is_empty());
+        assert_eq!(o.structured_data.elements.len(), 2);
+
+        let e = o.structured_data.elements.get(0).unwrap();
+        assert_eq!(e.id, "exampleSDID@32473");
+        assert_eq!(e.params.len(), 3);
+        assert_eq!(e.params["iut"], "3".to_owned());
+        assert_eq!(e.params["eventSource"], "Appli\\catio]n".to_owned());
+        assert_eq!(e.params["eventID"], "1011".to_owned());
+
+        let e = o.structured_data.elements.get(1).unwrap();
+        assert_eq!(e.id, "examplePriority@32473");
+        assert_eq!(e.params.len(), 1);
+        assert_eq!(e.params["class"], "hi\"gh".to_owned());
 
         assert_eq!(o.message, Some("foo\nbar".to_owned()));
     }
