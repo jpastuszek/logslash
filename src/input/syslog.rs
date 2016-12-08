@@ -7,31 +7,92 @@ use tokio_core::reactor::Handle;
 use futures::sync::mpsc;
 use nom::{ErrorKind, rest};
 use maybe_string::{MaybeStr, MaybeString};
+use std::mem;
 
 // TODO: use &str instead of String; make OwnedSyslogMessage variant that is Send
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StructuredElement {
     pub id: String,
     pub params: HashMap<String, String>
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct StructuredData {
     pub elements: Vec<StructuredElement>
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Message {
     String(String),
     MaybeString(MaybeString)
 }
 
+#[derive(Copy, Clone, PartialEq)]
+#[repr(u8)]
 #[derive(Debug)]
+pub enum Facility {
+	KernelMessages = 0,
+	UserLevelMessages = 1,
+	MailSystem = 2,
+	SystemDaemons = 3,
+	SecurityMessages = 4,
+	Internal = 5,
+	LinePrinterSubsystem = 6,
+	NetworkNewsSubsystem = 7,
+	UucpSubsystem = 8,
+	ClockDaemon = 9,
+	SecurityMessages2 = 10,
+	FtpDaemon = 11,
+	NtpSubsystem = 12,
+	LogAudit = 13,
+	LogAlert = 14,
+	ClockDaemon2 = 15,
+	Local0 = 16,
+	Local1 = 17,
+	Local2 = 18,
+	Local3 = 19,
+	Local4 = 20,
+	Local5 = 21,
+	Local6 = 22,
+	Local7 = 23,
+}
+
+impl Facility {
+    fn from_priority(priority: u8) -> Result<Facility, &'static str> {
+        let facility = priority >> 3;
+        if facility > 23 {
+            return Err("facility values MUST be in the range of 0 to 23 inclusive")
+        }
+        Ok(unsafe { mem::transmute(facility) })
+    }
+}
+
+#[derive(Copy, Clone, PartialEq)]
+#[repr(u8)]
+#[derive(Debug)]
+pub enum Severity {
+    Emergency = 0,
+    Alert = 1,
+    Critical = 2,
+    Error = 3,
+    Warning = 4,
+    Notice = 5,
+    Informational = 6,
+    Debug = 7
+}
+
+impl Severity {
+    fn from_priority(priority: u8) -> Severity {
+        let severity = priority - (priority >> 3 << 3);
+        unsafe { mem::transmute(severity) }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct SyslogEvent {
-    // TODO: enum facility and severity
-    pub facility: u8,
-    pub severity: u8,
+    pub facility: Facility,
+    pub severity: Severity,
     pub timestamp: Timestamp,
     pub hostname: String,
     pub app_name: Option<String>,
@@ -41,10 +102,9 @@ pub struct SyslogEvent {
     pub message: Option<Message>
 }
 
-// "(?m)<%{POSINT:priority}>(?:%{SYSLOGTIMESTAMP:timestamp}|%{TIMESTAMP_ISO8601:timestamp8601}) (?:%{SYSLOGFACILITY} )?(:?%{SYSLOGHOST:logsource} )?(?<program>[^ \[]+)(?:\[%{POSINT:pid}\])?: %{GREEDYDATA:message}"
-
+//TODO: match version outside of this
 named!(priority<&[u8], u8>, return_error!(ErrorKind::Custom(1),
-    delimited!(tag!(b"<"), map_res!(take_until!(">1"), parse::int_u8), tag!(b">1 "))));
+    delimited!(tag!(b"<"), map_res!(take_until!(">1"), parse::int_u8), tag!(b">"))));
 
 named!(timestamp<&[u8], Timestamp>, return_error!(ErrorKind::Custom(2),
     terminated!(map_res!(take_until!(" "), parse::timestamp), tag!(b" "))));
@@ -105,7 +165,7 @@ named!(structured_data<&[u8], StructuredData>, do_parse!(
 
 // Messages to be interpreted as UTF-8 strings need to be preceded with UTF-8 BOM
 const BOM: &'static[u8] = &[0xEF,0xBB,0xBF];
-named!(message<&[u8], Option<Message> >, return_error!(ErrorKind::Custom(13), do_parse!(
+named!(message<&[u8], Option<Message> >, return_error!(ErrorKind::Custom(20), do_parse!(
         sp: call!(sp_or_eof) >>
         ret: cond_with_error!(sp == b" ", do_parse!(
             bom: opt!(tag!(BOM)) >>
@@ -121,7 +181,9 @@ named!(message<&[u8], Option<Message> >, return_error!(ErrorKind::Custom(13), do
     )));
 
 named!(pub syslog_rfc5424<&[u8], SyslogEvent>, do_parse!(
-    priority: priority >>
+    facility: map_res!(peek!(priority), |p| Facility::from_priority(p)) >>
+    severity: map!(priority, |p| Severity::from_priority(p)) >>
+    tag!(b"1 ") >> // Fromat version 1
     timestamp: timestamp >>
     hostname: hostname >>
     app_name: app_name >>
@@ -130,8 +192,8 @@ named!(pub syslog_rfc5424<&[u8], SyslogEvent>, do_parse!(
     structured_data: structured_data >>
     message: message >>
     (SyslogEvent {
-        facility: priority >> 3,
-        severity: priority - (priority >> 3 << 3),
+        facility: facility,
+        severity: severity,
         timestamp: timestamp,
         hostname: hostname.to_owned(),
         app_name: app_name.map(|s| s.to_owned()),
@@ -166,7 +228,7 @@ pub mod simple_errors {
             ErrorKind::Custom(7) => "Expected valid syslog structured data",
             ErrorKind::Custom(11) => "Failed to parse structured data element",
             ErrorKind::Custom(12) => "Failed to parse structured data parameter",
-            ErrorKind::Custom(13) => "Bad syslog message payload encoding",
+            ErrorKind::Custom(20) => "Bad syslog message payload encoding",
             _ => "Syslog parser did not match"
         }))
     }
@@ -201,7 +263,7 @@ mod syslog_rfc5425_frame_tests {
 #[cfg(test)]
 mod syslog_rfc5424_tests {
     use super::simple_errors::syslog_rfc5424;
-    use super::{Timestamp, Message};
+    use super::{Timestamp, Message, Facility, Severity};
     use maybe_string::MaybeString;
     use nom::ErrorKind;
 
@@ -209,8 +271,8 @@ mod syslog_rfc5424_tests {
     fn priority() {
         let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 - foobar\n").unwrap();
         assert!(i.is_empty());
-        assert_eq!(o.facility, 20);
-        assert_eq!(o.severity, 5);
+        assert_eq!(o.facility, Facility::Local4);
+        assert_eq!(o.severity, Severity::Notice);
     }
 
     #[test]
