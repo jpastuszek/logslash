@@ -102,7 +102,6 @@ pub struct SyslogEvent {
     pub message: Option<Message>
 }
 
-//TODO: match version outside of this
 named!(priority<&[u8], u8>, return_error!(ErrorKind::Custom(1),
     delimited!(tag!(b"<"), map_res!(take_until!(">1"), parse::int_u8), tag!(b">"))));
 
