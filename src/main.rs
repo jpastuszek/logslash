@@ -7,6 +7,7 @@ extern crate error_chain;
 #[macro_use]
 extern crate assert_matches;
 extern crate chrono;
+extern crate maybe_string;
 
 mod input;
 

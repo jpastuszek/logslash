@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use tokio_core::reactor::Handle;
 use futures::sync::mpsc;
 use nom::{ErrorKind, rest};
+use maybe_string::{MaybeStr, MaybeString};
 
 // TODO: use &str instead of String; make OwnedSyslogMessage variant that is Send
 
@@ -20,8 +21,14 @@ pub struct StructuredData {
     pub elements: Vec<StructuredElement>
 }
 
+#[derive(Debug, PartialEq)]
+pub enum Message {
+    String(String),
+    MaybeString(MaybeString)
+}
+
 #[derive(Debug)]
-pub struct SyslogMessage {
+pub struct SyslogEvent {
     // TODO: enum facility and severity
     pub facility: u8,
     pub severity: u8,
@@ -31,7 +38,7 @@ pub struct SyslogMessage {
     pub proc_id: Option<String>,
     pub msg_id: Option<String>,
     pub structured_data: StructuredData,
-    pub message: Option<String>
+    pub message: Option<Message>
 }
 
 // "(?m)<%{POSINT:priority}>(?:%{SYSLOGTIMESTAMP:timestamp}|%{TIMESTAMP_ISO8601:timestamp8601}) (?:%{SYSLOGFACILITY} )?(:?%{SYSLOGHOST:logsource} )?(?<program>[^ \[]+)(?:\[%{POSINT:pid}\])?: %{GREEDYDATA:message}"
@@ -96,14 +103,24 @@ named!(structured_data<&[u8], StructuredData>, do_parse!(
         })
     ));
 
-// TODO: BOM support and octets
-named!(message<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(99), do_parse!(
+// Messages to be interpreted as UTF-8 strings need to be preceded with UTF-8 BOM
+const BOM: &'static[u8] = &[0xEF,0xBB,0xBF];
+named!(message<&[u8], Option<Message> >, return_error!(ErrorKind::Custom(13), do_parse!(
         sp: call!(sp_or_eof) >>
-        ret: cond_with_error!(sp == b" ", map_res!(rest, parse::string)) >>
+        ret: cond_with_error!(sp == b" ", do_parse!(
+            bom: opt!(tag!(BOM)) >>
+            ret: map_res!(rest,
+                |bytes| if bom.is_some() {
+                    parse::string(bytes).map(|s| Message::String(s.to_owned()))
+                } else {
+                    Ok(Message::MaybeString(MaybeStr::from_bytes(bytes).to_maybe_string()))
+                }) >>
+            (ret)
+        )) >>
         (ret)
     )));
 
-named!(pub syslog_rfc5424<&[u8], SyslogMessage>, do_parse!(
+named!(pub syslog_rfc5424<&[u8], SyslogEvent>, do_parse!(
     priority: priority >>
     timestamp: timestamp >>
     hostname: hostname >>
@@ -112,7 +129,7 @@ named!(pub syslog_rfc5424<&[u8], SyslogMessage>, do_parse!(
     msg_id: msg_id >>
     structured_data: structured_data >>
     message: message >>
-    (SyslogMessage {
+    (SyslogEvent {
         facility: priority >> 3,
         severity: priority - (priority >> 3 << 3),
         timestamp: timestamp,
@@ -121,7 +138,7 @@ named!(pub syslog_rfc5424<&[u8], SyslogMessage>, do_parse!(
         proc_id: proc_id.map(|s| s.to_owned()),
         msg_id: msg_id.map(|s| s.to_owned()),
         structured_data: structured_data,
-        message: message.map(|s| s.to_owned())
+        message: message
     })));
 
 named!(pub syslog_rfc5425_frame<&[u8], &[u8]>, do_parse!(
@@ -131,14 +148,14 @@ named!(pub syslog_rfc5425_frame<&[u8], &[u8]>, do_parse!(
         (syslog_msg)
     ));
 
-named!(pub syslog_rfc5424_in_rfc5425_frame<&[u8], SyslogMessage>,
+named!(pub syslog_rfc5424_in_rfc5425_frame<&[u8], SyslogEvent>,
        flat_map!(call!(syslog_rfc5425_frame), call!(syslog_rfc5424)));
 
 pub mod simple_errors {
-    use super::SyslogMessage;
+    use super::SyslogEvent;
     use nom::{IResult, ErrorKind};
 
-    pub fn syslog_rfc5424(input: &[u8]) -> IResult<&[u8], SyslogMessage, &'static str> {
+    pub fn syslog_rfc5424(input: &[u8]) -> IResult<&[u8], SyslogEvent, &'static str> {
         super::syslog_rfc5424(input).map_err(|err| ErrorKind::Custom(match err {
             ErrorKind::Custom(1) => "Bad syslog priority tag format",
             ErrorKind::Custom(2) => "Unrecognized syslog timestamp format",
@@ -149,9 +166,8 @@ pub mod simple_errors {
             ErrorKind::Custom(7) => "Expected valid syslog structured data",
             ErrorKind::Custom(11) => "Failed to parse structured data element",
             ErrorKind::Custom(12) => "Failed to parse structured data parameter",
-            ErrorKind::Custom(99) => "Bad syslog message payload",
-            //_ => "Syslog parser did not match"
-            e => panic!("{:?}", e)
+            ErrorKind::Custom(13) => "Bad syslog message payload encoding",
+            _ => "Syslog parser did not match"
         }))
     }
 
@@ -162,11 +178,11 @@ pub mod simple_errors {
         }))
     }
 
-    named!(pub syslog_rfc5424_in_rfc5425_frame<&[u8], SyslogMessage, &'static str>,
+    named!(pub syslog_rfc5424_in_rfc5425_frame<&[u8], SyslogEvent, &'static str>,
            flat_map!(call!(syslog_rfc5425_frame), call!(syslog_rfc5424)));
 }
 
-pub fn tcp_syslog_input(handle: Handle, addr: &SocketAddr) -> mpsc::Receiver<SyslogMessage> {
+pub fn tcp_syslog_input(handle: Handle, addr: &SocketAddr) -> mpsc::Receiver<SyslogEvent> {
     tcp_nom_input("syslog", handle, addr, simple_errors::syslog_rfc5424_in_rfc5425_frame)
 }
 
@@ -185,7 +201,8 @@ mod syslog_rfc5425_frame_tests {
 #[cfg(test)]
 mod syslog_rfc5424_tests {
     use super::simple_errors::syslog_rfc5424;
-    use super::Timestamp;
+    use super::{Timestamp, Message};
+    use maybe_string::MaybeString;
     use nom::ErrorKind;
 
     #[test]
@@ -256,7 +273,7 @@ mod syslog_rfc5424_tests {
 
     #[test]
     fn structured_data_single() {
-        let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"] foo\nbar").unwrap();
+        let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"] \xEF\xBB\xBFfoo\nbar").unwrap();
         assert!(i.is_empty());
 
         assert_eq!(o.structured_data.elements.len(), 1);
@@ -268,12 +285,12 @@ mod syslog_rfc5424_tests {
         assert_eq!(e.params["eventSource"], "Application".to_owned());
         assert_eq!(e.params["eventID"], "1011".to_owned());
 
-        assert_eq!(o.message, Some("foo\nbar".to_owned()));
+        assert_eq!(o.message, Some(Message::String("foo\nbar".to_owned())));
     }
 
     #[test]
     fn structured_data_multi() {
-        let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"] foo\nbar").unwrap();
+        let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"] \xEF\xBB\xBFfoo\nbar").unwrap();
         assert!(i.is_empty());
         assert_eq!(o.structured_data.elements.len(), 2);
 
@@ -289,12 +306,12 @@ mod syslog_rfc5424_tests {
         assert_eq!(e.params.len(), 1);
         assert_eq!(e.params["class"], "high".to_owned());
 
-        assert_eq!(o.message, Some("foo\nbar".to_owned()));
+        assert_eq!(o.message, Some(Message::String("foo\nbar".to_owned())));
     }
 
     #[test]
     fn structured_data_multi_escapes() {
-        let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Appli\\\\catio\\]n\" eventID=\"1011\"][examplePriority@32473 class=\"hi\\\"gh\"] foo\nbar").unwrap();
+        let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Appli\\\\catio\\]n\" eventID=\"1011\"][examplePriority@32473 class=\"hi\\\"gh\"] \xEF\xBB\xBFfoo\nbar").unwrap();
 
         assert!(i.is_empty());
         assert_eq!(o.structured_data.elements.len(), 2);
@@ -311,7 +328,7 @@ mod syslog_rfc5424_tests {
         assert_eq!(e.params.len(), 1);
         assert_eq!(e.params["class"], "hi\"gh".to_owned());
 
-        assert_eq!(o.message, Some("foo\nbar".to_owned()));
+        assert_eq!(o.message, Some(Message::String("foo\nbar".to_owned())));
     }
 
     #[test]
@@ -337,15 +354,22 @@ mod syslog_rfc5424_tests {
     }
 
     #[test]
-    fn message() {
+    fn message_maybe_string() {
         let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 - foo\nbar").unwrap();
         assert!(i.is_empty());
-        assert_eq!(o.message, Some("foo\nbar".to_owned()));
+        assert_eq!(o.message, Some(Message::MaybeString(MaybeString::from_bytes(b"foo\nbar".as_ref().to_owned()))));
     }
 
     #[test]
-    fn message_error() {
-        let err = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 - baz\xc3\x28").unwrap_err();
-        assert_matches!(err, ErrorKind::Custom("Bad syslog message payload"));
+    fn message_bom() {
+        let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 - \xEF\xBB\xBFfoo\nbar").unwrap();
+        assert!(i.is_empty());
+        assert_eq!(o.message, Some(Message::String("foo\nbar".to_owned())));
+    }
+
+    #[test]
+    fn message_bom_bad_utf8() {
+        let err = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 - \xEF\xBB\xBFbaz\xc3\x28").unwrap_err();
+        assert_matches!(err, ErrorKind::Custom("Bad syslog message payload encoding"));
     }
 }
