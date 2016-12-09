@@ -102,6 +102,18 @@ pub struct SyslogEvent {
     pub message: Option<Message>
 }
 
+impl SyslogEvent {
+    //TODO: in \n separated TCP stream the ctrl chars are be escaped using # + octal encoding by
+    //popular log agents
+    fn decode_newlines(mut self) -> SyslogEvent {
+        if let Some(Message::String(s)) = self.message {
+            SyslogEvent { message: Some(Message::String(s.replace("#012", "\n"))), .. self }
+        } else {
+            self
+        }
+    }
+}
+
 named!(priority<&[u8], u8>, return_error!(ErrorKind::Custom(1),
     delimited!(tag!(b"<"), map_res!(take_until!(">1"), parse::int_u8), tag!(b">"))));
 
@@ -212,6 +224,18 @@ named!(pub syslog_rfc5425_frame<&[u8], &[u8]>, do_parse!(
 named!(pub syslog_rfc5424_in_rfc5425_frame<&[u8], SyslogEvent>,
        flat_map!(call!(syslog_rfc5425_frame), call!(syslog_rfc5424)));
 
+// framing not allowing to use \n in messages - use #012 to represent \n and replace in final
+// message
+named!(pub syslog_newline_frame<&[u8], &[u8]>, do_parse!(
+        syslog_msg: take_until!("\n") >>
+        tag!(b"\n") >>
+        (syslog_msg)
+    ));
+
+named!(pub syslog_rfc5424_in_newline_frame<&[u8], SyslogEvent>, map!(
+       flat_map!(call!(syslog_newline_frame), call!(syslog_rfc5424)),
+       |m: SyslogEvent| m.decode_newlines()));
+
 pub mod simple_errors {
     use super::SyslogEvent;
     use nom::{IResult, ErrorKind};
@@ -241,10 +265,21 @@ pub mod simple_errors {
 
     named!(pub syslog_rfc5424_in_rfc5425_frame<&[u8], SyslogEvent, &'static str>,
            flat_map!(call!(syslog_rfc5425_frame), call!(syslog_rfc5424)));
+
+    pub fn syslog_newline_frame(input: &[u8]) -> IResult<&[u8], &[u8], &'static str> {
+        super::syslog_newline_frame(input).map_err(|err| ErrorKind::Custom(match err {
+            _ => "Syslog new line frame parser did not match"
+        }))
+    }
+
+    named!(pub syslog_rfc5424_in_newline_frame<&[u8], SyslogEvent, &'static str>, map!(
+           flat_map!(call!(syslog_newline_frame), call!(syslog_rfc5424)),
+           |m: SyslogEvent| m.decode_newlines()));
 }
 
 pub fn tcp_syslog_input(handle: Handle, addr: &SocketAddr) -> mpsc::Receiver<SyslogEvent> {
-    tcp_nom_input("syslog", handle, addr, simple_errors::syslog_rfc5424_in_rfc5425_frame)
+    //tcp_nom_input("syslog", handle, addr, simple_errors::syslog_rfc5424_in_rfc5425_frame)
+    tcp_nom_input("syslog", handle, addr, simple_errors::syslog_rfc5424_in_newline_frame)
 }
 
 #[cfg(test)]
@@ -260,11 +295,31 @@ mod syslog_rfc5425_frame_tests {
 }
 
 #[cfg(test)]
+mod syslog_newline_frame_tests {
+    use super::simple_errors::syslog_newline_frame;
+
+    #[test]
+    fn framing() {
+        let (i, o) = syslog_newline_frame(b"foo\nbar\nbaz\n").unwrap();
+        assert_eq!(i, &b"bar\nbaz\n"[..]);
+        assert_eq!(o, &b"foo"[..]);
+
+        let (i, o) = syslog_newline_frame(i).unwrap();
+        assert_eq!(i, &b"baz\n"[..]);
+        assert_eq!(o, &b"bar"[..]);
+
+        let (i, o) = syslog_newline_frame(i).unwrap();
+        assert!(i.is_empty());
+        assert_eq!(o, &b"baz"[..]);
+    }
+}
+
+#[cfg(test)]
 mod syslog_rfc5424_tests {
+    pub use super::{Timestamp, Message, Facility, Severity};
+    pub use maybe_string::MaybeString;
+    pub use nom::ErrorKind;
     use super::simple_errors::syslog_rfc5424;
-    use super::{Timestamp, Message, Facility, Severity};
-    use maybe_string::MaybeString;
-    use nom::ErrorKind;
 
     #[test]
     fn priority() {
@@ -432,5 +487,31 @@ mod syslog_rfc5424_tests {
     fn message_bom_bad_utf8() {
         let err = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 - \xEF\xBB\xBFbaz\xc3\x28").unwrap_err();
         assert_matches!(err, ErrorKind::Custom("Bad syslog message payload encoding"));
+    }
+
+    #[cfg(test)]
+    mod in_syslog_newline_frame_tests {
+        use super::*;
+        use super::super::simple_errors::syslog_rfc5424_in_newline_frame;
+
+        #[test]
+        fn framing() {
+            let (i, o) = syslog_rfc5424_in_newline_frame(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 - \xEF\xBB\xBFfoo\n<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 - foo\n").unwrap();
+            assert_eq!(o.message, Some(Message::String("foo".to_owned())));
+
+            let (i, o) = syslog_rfc5424_in_newline_frame(i).unwrap();
+            assert!(i.is_empty());
+            assert_eq!(o.message, Some(Message::MaybeString(MaybeString::from_bytes(b"foo".as_ref().to_owned()))));
+        }
+
+        #[test]
+        fn octal_newline_excapes_when_message_is_string() {
+            let (i, o) = syslog_rfc5424_in_newline_frame(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 - \xEF\xBB\xBFfoo#012bar\n<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 - foo#012bar\n").unwrap();
+            assert_eq!(o.message, Some(Message::String("foo\nbar".to_owned())));
+
+            let (i, o) = syslog_rfc5424_in_newline_frame(i).unwrap();
+            assert!(i.is_empty());
+            assert_eq!(o.message, Some(Message::MaybeString(MaybeString::from_bytes(b"foo#012bar".as_ref().to_owned()))));
+        }
     }
 }

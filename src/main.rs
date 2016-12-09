@@ -24,7 +24,7 @@ fn main() {
 
     let input = tcp_syslog_input(handle, &"127.0.0.1:5514".parse().unwrap())
         .for_each(|message| {
-            println!("Got syslog message: {:?}", message);
+            println!("Got syslog message: {:#?}", message);
             Ok(())
         });
 
