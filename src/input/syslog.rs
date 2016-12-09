@@ -98,7 +98,7 @@ pub struct SyslogEvent {
     pub app_name: Option<String>,
     pub proc_id: Option<String>,
     pub msg_id: Option<String>,
-    pub structured_data: StructuredData,
+    pub structured_data: Option<StructuredData>,
     pub message: Option<Message>
 }
 
@@ -163,15 +163,13 @@ named!(structured_data_element<&[u8], StructuredElement>, return_error!(ErrorKin
 
 named!(sp_or_eof<&[u8], &[u8]>, alt!(eof!() | tag!(b" ")));
 
-named!(structured_data<&[u8], StructuredData>, do_parse!(
+named!(structured_data<&[u8], Option<StructuredData> >, do_parse!(
         minus: opt!(tag!(b"-")) >>
         res: cond_with_error!(minus.is_none(), many_till!(
             call!(structured_data_element),
             peek!(call!(sp_or_eof))
         )) >>
-        (StructuredData {
-            elements: res.map(|r| r.0).unwrap_or(Vec::new())
-        })
+        (res.map(|r| StructuredData { elements: r.0 }))
     ));
 
 // Messages to be interpreted as UTF-8 strings need to be preceded with UTF-8 BOM
@@ -392,9 +390,9 @@ mod syslog_rfc5424_tests {
         let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"] \xEF\xBB\xBFfoo\nbar").unwrap();
         assert!(i.is_empty());
 
-        assert_eq!(o.structured_data.elements.len(), 1);
+        assert_eq!(o.structured_data.as_ref().unwrap().elements.len(), 1);
 
-        let e = o.structured_data.elements.get(0).unwrap();
+        let e = o.structured_data.as_ref().unwrap().elements.get(0).unwrap();
         assert_eq!(e.id, "exampleSDID@32473");
         assert_eq!(e.params.len(), 3);
         assert_eq!(e.params["iut"], "3".to_owned());
@@ -408,16 +406,16 @@ mod syslog_rfc5424_tests {
     fn structured_data_multi() {
         let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"] \xEF\xBB\xBFfoo\nbar").unwrap();
         assert!(i.is_empty());
-        assert_eq!(o.structured_data.elements.len(), 2);
+        assert_eq!(o.structured_data.as_ref().unwrap().elements.len(), 2);
 
-        let e = o.structured_data.elements.get(0).unwrap();
+        let e = o.structured_data.as_ref().unwrap().elements.get(0).unwrap();
         assert_eq!(e.id, "exampleSDID@32473");
         assert_eq!(e.params.len(), 3);
         assert_eq!(e.params["iut"], "3".to_owned());
         assert_eq!(e.params["eventSource"], "Application".to_owned());
         assert_eq!(e.params["eventID"], "1011".to_owned());
 
-        let e = o.structured_data.elements.get(1).unwrap();
+        let e = o.structured_data.as_ref().unwrap().elements.get(1).unwrap();
         assert_eq!(e.id, "examplePriority@32473");
         assert_eq!(e.params.len(), 1);
         assert_eq!(e.params["class"], "high".to_owned());
@@ -430,16 +428,16 @@ mod syslog_rfc5424_tests {
         let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Appli\\\\catio\\]n\" eventID=\"1011\"][examplePriority@32473 class=\"hi\\\"gh\"] \xEF\xBB\xBFfoo\nbar").unwrap();
 
         assert!(i.is_empty());
-        assert_eq!(o.structured_data.elements.len(), 2);
+        assert_eq!(o.structured_data.as_ref().unwrap().elements.len(), 2);
 
-        let e = o.structured_data.elements.get(0).unwrap();
+        let e = o.structured_data.as_ref().unwrap().elements.get(0).unwrap();
         assert_eq!(e.id, "exampleSDID@32473");
         assert_eq!(e.params.len(), 3);
         assert_eq!(e.params["iut"], "3".to_owned());
         assert_eq!(e.params["eventSource"], "Appli\\catio]n".to_owned());
         assert_eq!(e.params["eventID"], "1011".to_owned());
 
-        let e = o.structured_data.elements.get(1).unwrap();
+        let e = o.structured_data.as_ref().unwrap().elements.get(1).unwrap();
         assert_eq!(e.id, "examplePriority@32473");
         assert_eq!(e.params.len(), 1);
         assert_eq!(e.params["class"], "hi\"gh".to_owned());
@@ -452,16 +450,16 @@ mod syslog_rfc5424_tests {
         let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"]").unwrap();
         assert!(i.is_empty());
 
-        assert_eq!(o.structured_data.elements.len(), 2);
+        assert_eq!(o.structured_data.as_ref().unwrap().elements.len(), 2);
 
-        let e = o.structured_data.elements.get(0).unwrap();
+        let e = o.structured_data.as_ref().unwrap().elements.get(0).unwrap();
         assert_eq!(e.id, "exampleSDID@32473");
         assert_eq!(e.params.len(), 3);
         assert_eq!(e.params["iut"], "3".to_owned());
         assert_eq!(e.params["eventSource"], "Application".to_owned());
         assert_eq!(e.params["eventID"], "1011".to_owned());
 
-        let e = o.structured_data.elements.get(1).unwrap();
+        let e = o.structured_data.as_ref().unwrap().elements.get(1).unwrap();
         assert_eq!(e.id, "examplePriority@32473");
         assert_eq!(e.params.len(), 1);
         assert_eq!(e.params["class"], "high".to_owned());
