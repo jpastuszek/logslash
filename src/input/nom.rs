@@ -61,7 +61,7 @@ impl<T> Codec for NomCodec<T> {
     }
 
     fn encode(&mut self, _msg: Self::Out, _buf: &mut Vec<u8>) -> Result<(), IoError> {
-        panic!("SyslogCodec: encode unimplemented!")
+        panic!("NomCodec: encode unimplemented!")
     }
 }
 

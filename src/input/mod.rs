@@ -9,8 +9,6 @@ mod parse {
     use chrono::{DateTime, FixedOffset};
     use chrono::format::ParseError as ChronoParesError;
 
-    pub type Timestamp = DateTime<FixedOffset>;
-
     error_chain! {
         foreign_links {
             Utf8Error(Utf8Error);
@@ -28,7 +26,7 @@ mod parse {
         .and_then(|s| s.parse().map_err(From::from))
     }
 
-    pub fn timestamp(bytes: &[u8]) -> Result<Timestamp> {
+    pub fn timestamp(bytes: &[u8]) -> Result<DateTime<FixedOffset>> {
         let s = string(bytes)?;
 
         DateTime::parse_from_rfc3339(s)

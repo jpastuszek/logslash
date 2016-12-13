@@ -9,5 +9,10 @@ chrono = "0.2.25"
 error-chain = "0.7.1"
 futures = "0.1.6"
 nom = "2.0.0"
+serde = "0.8.19"
+serde_json = "0.8.4"
 tokio-core = "0.1.1"
-maybe-string = { git = "https://github.com/jpastuszek/maybe-string.git" }
+uuid = { version = "0.3.1", features = ["serde", "v4"] }
+
+[dependencies.maybe-string]
+git = "https://github.com/jpastuszek/maybe-string.git"

@@ -1,13 +1,16 @@
 use super::nom::tcp_nom_input;
 use super::parse;
-pub use super::parse::Timestamp;
+use event::{LogstashEvent, FieldSerializer};
 use std::net::SocketAddr;
 use std::collections::HashMap;
+use std::mem;
+use std::borrow::Cow;
 use tokio_core::reactor::Handle;
 use futures::sync::mpsc;
 use nom::{ErrorKind, rest};
 use maybe_string::{MaybeStr, MaybeString};
-use std::mem;
+use chrono::{DateTime, UTC, FixedOffset};
+use uuid::Uuid;
 
 // TODO: use &str instead of String; make OwnedSyslogMessage variant that is Send
 
@@ -30,6 +33,7 @@ pub enum Message {
 
 #[derive(Copy, Clone, PartialEq)]
 #[repr(u8)]
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum Facility {
 	KernelMessages = 0,
@@ -42,12 +46,12 @@ pub enum Facility {
 	NetworkNewsSubsystem = 7,
 	UucpSubsystem = 8,
 	ClockDaemon = 9,
-	SecurityMessages2 = 10,
+	AuthPrivMessage = 10,
 	FtpDaemon = 11,
 	NtpSubsystem = 12,
 	LogAudit = 13,
 	LogAlert = 14,
-	ClockDaemon2 = 15,
+	SchedulingDaemon = 15,
 	Local0 = 16,
 	Local1 = 17,
 	Local2 = 18,
@@ -70,6 +74,7 @@ impl Facility {
 
 #[derive(Copy, Clone, PartialEq)]
 #[repr(u8)]
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum Severity {
     Emergency = 0,
@@ -93,19 +98,20 @@ impl Severity {
 pub struct SyslogEvent {
     pub facility: Facility,
     pub severity: Severity,
-    pub timestamp: Timestamp,
+    pub timestamp: DateTime<FixedOffset>,
     pub hostname: String,
-    pub app_name: Option<String>,
+    pub program: Option<String>,
     pub proc_id: Option<String>,
     pub msg_id: Option<String>,
     pub structured_data: Option<StructuredData>,
-    pub message: Option<Message>
+    pub message: Option<Message>,
+    pub processed: DateTime<UTC>,
 }
 
 impl SyslogEvent {
     //TODO: in \n separated TCP stream the ctrl chars are be escaped using # + octal encoding by
     //popular log agents
-    fn decode_newlines(mut self) -> SyslogEvent {
+    fn decode_newlines(self) -> SyslogEvent {
         if let Some(Message::String(s)) = self.message {
             SyslogEvent { message: Some(Message::String(s.replace("#012", "\n"))), .. self }
         } else {
@@ -114,10 +120,97 @@ impl SyslogEvent {
     }
 }
 
+impl LogstashEvent for SyslogEvent {
+    fn timestamp(&self) -> DateTime<UTC> {
+        self.timestamp.with_timezone(&UTC)
+    }
+
+    fn message(&self) -> Cow<str> {
+        match self.message {
+            Some(Message::String(ref s)) => Cow::Borrowed(s),
+            Some(Message::MaybeString(ref ms)) => Cow::Owned(ms.as_maybe_str().to_lossy_string()),
+            None => Cow::Borrowed("< wow such empty >"),
+        }
+    }
+
+    fn event_type(&self) -> &str {
+        "syslog"
+    }
+
+    fn tags(&self) -> Vec<&'static str> {
+        vec!["class:syslog"]
+    }
+
+    fn processed(&self) -> DateTime<UTC> {
+        self.processed
+    }
+
+    fn id(&self) -> Cow<str> {
+        if let Some(ref msg_id) = self.msg_id {
+            Cow::Borrowed(msg_id)
+        } else {
+            Cow::Owned(Uuid::new_v4().simple().to_string())
+        }
+    }
+
+    fn fields<F: FieldSerializer>(&self, serializer: &mut F) -> Result<(), F::Error> {
+        serializer.serialize_field_str("host", &self.hostname)?;
+
+        let severity = match self.severity {
+            Severity::Emergency => "Emergency",
+            Severity::Alert => "Alert",
+            Severity::Critical => "Critical",
+            Severity::Error => "Error",
+            Severity::Warning => "Warning",
+            Severity::Notice => "Notice",
+            Severity::Informational => "Informational",
+            Severity::Debug => "Debug",
+        };
+        serializer.serialize_field_str("severity", severity)?;
+
+        let facility = match self.facility {
+            Facility::KernelMessages => "kernel",
+            Facility::UserLevelMessages => "user-level",
+            Facility::MailSystem => "mail",
+            Facility::SystemDaemons => "system",
+            Facility::SecurityMessages => "security/authorization",
+            Facility::Internal => "syslogd",
+            Facility::LinePrinterSubsystem => "line printer",
+            Facility::NetworkNewsSubsystem => "network news",
+            Facility::UucpSubsystem => "UUCP",
+            Facility::ClockDaemon => "clock",
+            Facility::AuthPrivMessage => "security/authorization",
+            Facility::FtpDaemon => "FTP",
+            Facility::NtpSubsystem => "NTP",
+            Facility::LogAudit => "log audit",
+            Facility::LogAlert => "log alert",
+            Facility::SchedulingDaemon => "clock",
+            Facility::Local0 => "local0",
+            Facility::Local1 => "local1",
+            Facility::Local2 => "local2",
+            Facility::Local3 => "local3",
+            Facility::Local4 => "local4",
+            Facility::Local5 => "local5",
+            Facility::Local6 => "local6",
+            Facility::Local7 => "local7",
+        };
+        serializer.serialize_field_str("facility", facility)?;
+
+        if let Some(ref program) = self.program {
+            serializer.serialize_field_str("program", &program)?;
+        }
+
+        if let Some(ref pid) = self.proc_id {
+            serializer.serialize_field_str("pid", &pid)?;
+        }
+        Ok(())
+    }
+}
+
 named!(priority<&[u8], u8>, return_error!(ErrorKind::Custom(1),
     delimited!(tag!(b"<"), map_res!(take_until!(">1"), parse::int_u8), tag!(b">"))));
 
-named!(timestamp<&[u8], Timestamp>, return_error!(ErrorKind::Custom(2),
+named!(timestamp<&[u8], DateTime<FixedOffset> >, return_error!(ErrorKind::Custom(2),
     terminated!(map_res!(take_until!(" "), parse::timestamp), tag!(b" "))));
 
 named!(hostname<&[u8], &str>, return_error!(ErrorKind::Custom(3),
@@ -132,7 +225,7 @@ named!(opt_str<&[u8], Option<&str> >, map!(
         |s| if s == "-" { None } else { Some(s) }
     ));
 
-named!(app_name<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(4), opt_str));
+named!(program<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(4), opt_str));
 named!(proc_id<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(5), opt_str));
 named!(msg_id<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(6), opt_str));
 
@@ -195,7 +288,7 @@ named!(pub syslog_rfc5424<&[u8], SyslogEvent>, do_parse!(
     tag!(b"1 ") >> // Fromat version 1
     timestamp: timestamp >>
     hostname: hostname >>
-    app_name: app_name >>
+    program: program >>
     proc_id: proc_id >>
     msg_id: msg_id >>
     structured_data: structured_data >>
@@ -205,11 +298,12 @@ named!(pub syslog_rfc5424<&[u8], SyslogEvent>, do_parse!(
         severity: severity,
         timestamp: timestamp,
         hostname: hostname.to_owned(),
-        app_name: app_name.map(|s| s.to_owned()),
+        program: program.map(|s| s.to_owned()),
         proc_id: proc_id.map(|s| s.to_owned()),
         msg_id: msg_id.map(|s| s.to_owned()),
         structured_data: structured_data,
-        message: message
+        message: message,
+        processed: UTC::now(),
     })));
 
 named!(pub syslog_rfc5425_frame<&[u8], &[u8]>, do_parse!(
@@ -366,17 +460,17 @@ mod syslog_rfc5424_tests {
     }
 
     #[test]
-    fn app_name() {
+    fn program() {
         let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 - foobar\n").unwrap();
         assert!(i.is_empty());
-        assert_eq!(o.app_name, Some("evntslog".to_owned()));
+        assert_eq!(o.program, Some("evntslog".to_owned()));
     }
 
     #[test]
     fn app_name_none() {
         let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com - - ID47 - foobar\n").unwrap();
         assert!(i.is_empty());
-        assert_eq!(o.app_name, None);
+        assert_eq!(o.program, None);
     }
 
     #[test]
