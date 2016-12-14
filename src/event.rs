@@ -21,12 +21,27 @@ pub trait FieldSerializer {
     fn serialize_field_tags(&mut self, name: &str, tags: &[&'static str]) -> Result<(), Self::Error>;
 }
 
-struct SerdeFieldSerializer<'ss, 's: 'ss, S> where S: Serializer + 's {
+struct SerdeFieldSerializer<'s, S> where S: Serializer + 's {
     serializer: &'s mut S,
-    state: &'ss mut S::MapState,
+    state: S::MapState,
 }
 
-impl<'s, 'ss, S> FieldSerializer for SerdeFieldSerializer<'s, 'ss, S> where S: Serializer + 's {
+impl<'s, S> SerdeFieldSerializer<'s, S> where S: Serializer + 's  {
+    fn from_serializer(serializer: &'s mut S) -> Result<Self, S::Error> {
+        let mut state = serializer.serialize_map(None)?;
+
+        Ok(SerdeFieldSerializer {
+            serializer: serializer,
+            state: state
+        })
+    }
+
+    fn finish(self) -> Result<(), S::Error> {
+        self.serializer.serialize_map_end(self.state)
+    }
+}
+
+impl<'s, S> FieldSerializer for SerdeFieldSerializer<'s, S> where S: Serializer + 's {
     type Error = S::Error;
 
     fn serialize_field_str(&mut self, name: &str, value: &str) -> Result<(), Self::Error> {
@@ -57,25 +72,24 @@ pub trait LogstashEvent {
 }
 
 pub trait SerializeEvent {
+    // TODO: serializer should be FieldSerializer; then I can pass any to get data serialised
     fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer;
 }
 
 impl<T> SerializeEvent for T where T: LogstashEvent {
     fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
-        let mut state = serializer.serialize_map(None)?;
-        {
-            let mut filed_serializer = SerdeFieldSerializer { serializer: serializer, state: &mut state };
+        let mut filed_serializer = SerdeFieldSerializer::from_serializer(serializer)?;
 
-            filed_serializer.serialize_field_str("@timestamp", &self.timestamp().to_rfc3339())?; //TODO: TZ should be 'Z'
-            filed_serializer.serialize_field_str("@processed", &self.processed().to_rfc3339())?; //TODO: TZ should be 'Z'
-            filed_serializer.serialize_field_str("@version", self.version())?;
-            filed_serializer.serialize_field_str("@id", self.id().as_ref())?;
-            filed_serializer.serialize_field_str("type", self.event_type())?;
-            filed_serializer.serialize_field_tags("tags", self.tags().as_slice())?;
-            filed_serializer.serialize_field_str("message", self.message().as_ref())?;
+        filed_serializer.serialize_field_str("@timestamp", &self.timestamp().to_rfc3339())?; //TODO: TZ should be 'Z'
+        filed_serializer.serialize_field_str("@processed", &self.processed().to_rfc3339())?; //TODO: TZ should be 'Z'
+        filed_serializer.serialize_field_str("@version", self.version())?;
+        filed_serializer.serialize_field_str("@id", self.id().as_ref())?;
+        filed_serializer.serialize_field_str("type", self.event_type())?;
+        filed_serializer.serialize_field_tags("tags", self.tags().as_slice())?;
+        filed_serializer.serialize_field_str("message", self.message().as_ref())?;
 
-            self.fields(&mut filed_serializer)?;
-        }
-        serializer.serialize_map_end(state)
+        self.fields(&mut filed_serializer)?;
+
+        filed_serializer.finish()
     }
 }
