@@ -14,12 +14,72 @@ use serde::ser::Serializer;
  * ** @id (String)
  */
 
+pub trait LogstashEvent {
+    fn timestamp(&self) -> DateTime<UTC>;
+    fn version(&self) -> &str { "1" }
+    fn message(&self) -> Cow<str>;
+    fn event_type(&self) -> &str;
+    fn tags(&self) -> Vec<&'static str>;
+    fn processed(&self) -> DateTime<UTC>;
+    fn id(&self) -> Cow<str>;
+    fn fields<F: FieldSerializer>(&self, serializer: &mut F) -> Result<(), F::Error>;
+}
+
 pub trait FieldSerializer {
     type Error;
     fn serialize_field_str(&mut self, name: &str, value: &str) -> Result<(), Self::Error>;
     fn serialize_field_u64(&mut self, name: &str, value: u64) -> Result<(), Self::Error>;
     fn serialize_field_tags(&mut self, name: &str, tags: &[&'static str]) -> Result<(), Self::Error>;
     fn finish(self) -> Result<(), Self::Error>;
+
+    fn rename(self, from: &'static str, to: &'static str) -> RenamingFieldSerializer<Self> where Self: Sized {
+        RenamingFieldSerializer {
+            from: from,
+            to: to,
+            inner: self
+        }
+    }
+}
+
+pub struct RenamingFieldSerializer<F: FieldSerializer> {
+    from: &'static str,
+    to: &'static str,
+    inner: F
+}
+
+impl<F: FieldSerializer> FieldSerializer for RenamingFieldSerializer<F> {
+    type Error = F::Error;
+
+    fn serialize_field_str(&mut self, name: &str, value: &str) -> Result<(), Self::Error> {
+       let name = if name == self.from {
+           self.to
+       } else {
+           name
+       };
+       self.inner.serialize_field_str(name, value)
+    }
+
+    fn serialize_field_u64(&mut self, name: &str, value: u64) -> Result<(), Self::Error> {
+        let name = if name == self.from {
+            self.to
+        } else {
+            name
+        };
+        self.inner.serialize_field_u64(name, value)
+    }
+
+    fn serialize_field_tags(&mut self, name: &str, tags: &[&'static str]) -> Result<(), Self::Error> {
+        let name = if name == self.from {
+            self.to
+        } else {
+            name
+        };
+        self.inner.serialize_field_tags(name, tags)
+    }
+
+    fn finish(self) -> Result<(), Self::Error> {
+        self.inner.finish()
+    }
 }
 
 pub struct SerdeFieldSerializer<'s, S> where S: Serializer + 's {
@@ -59,17 +119,6 @@ impl<'s, S> FieldSerializer for SerdeFieldSerializer<'s, S> where S: Serializer 
     fn finish(self) -> Result<(), Self::Error> {
         self.serializer.serialize_map_end(self.state)
     }
-}
-
-pub trait LogstashEvent {
-    fn timestamp(&self) -> DateTime<UTC>;
-    fn version(&self) -> &str { "1" }
-    fn message(&self) -> Cow<str>;
-    fn event_type(&self) -> &str;
-    fn tags(&self) -> Vec<&'static str>;
-    fn processed(&self) -> DateTime<UTC>;
-    fn id(&self) -> Cow<str>;
-    fn fields<F: FieldSerializer>(&self, serializer: &mut F) -> Result<(), F::Error>;
 }
 
 pub trait SerializeEvent {
