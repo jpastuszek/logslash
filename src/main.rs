@@ -39,7 +39,9 @@ fn main() {
 
             {
                 let field_ser = SerdeFieldSerializer::new(&mut ser).expect("field serializer")
-                    .rename("severity", "log_level");
+                    .rename("severity", "log_level")
+                    .map_str("severity", |l| l.to_lowercase())
+                    .map_str("message", |m| m.replace("#012", "\n"));
                 message.serialize(field_ser).expect("serialized message");
             }
 

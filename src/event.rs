@@ -39,6 +39,14 @@ pub trait FieldSerializer {
             inner: self
         }
     }
+
+    fn map_str<FU>(self, field: &'static str, f: FU) -> MapStrFieldSerializer<Self, FU> where Self: Sized, FU: FnMut(&str) -> String {
+        MapStrFieldSerializer {
+            field: field,
+            f: f,
+            inner: self
+        }
+    }
 }
 
 pub struct RenamingFieldSerializer<F: FieldSerializer> {
@@ -74,6 +82,37 @@ impl<F: FieldSerializer> FieldSerializer for RenamingFieldSerializer<F> {
         } else {
             name
         };
+        self.inner.serialize_field_tags(name, tags)
+    }
+
+    fn finish(self) -> Result<(), Self::Error> {
+        self.inner.finish()
+    }
+}
+
+pub struct MapStrFieldSerializer<F: FieldSerializer, FU> {
+    field: &'static str,
+    f: FU,
+    inner: F
+}
+
+impl<F: FieldSerializer, FU> FieldSerializer for MapStrFieldSerializer<F, FU> where FU: FnMut(&str) -> String {
+    type Error = F::Error;
+
+    fn serialize_field_str(&mut self, name: &str, value: &str) -> Result<(), Self::Error> {
+       let value = if name == self.field {
+           Cow::Owned((self.f)(value))
+       } else {
+           Cow::Borrowed(value)
+       };
+       self.inner.serialize_field_str(name, value.as_ref())
+    }
+
+    fn serialize_field_u64(&mut self, name: &str, value: u64) -> Result<(), Self::Error> {
+        self.inner.serialize_field_u64(name, value)
+    }
+
+    fn serialize_field_tags(&mut self, name: &str, tags: &[&'static str]) -> Result<(), Self::Error> {
         self.inner.serialize_field_tags(name, tags)
     }
 

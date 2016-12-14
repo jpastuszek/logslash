@@ -154,7 +154,7 @@ impl LogstashEvent for SyslogEvent {
     }
 
     fn fields<F: FieldSerializer>(&self, serializer: &mut F) -> Result<(), F::Error> {
-        serializer.serialize_field_str("host", &self.hostname)?;
+        serializer.serialize_field_str("logsource", &self.hostname)?;
 
         let severity = match self.severity {
             Severity::Emergency => "Emergency",
