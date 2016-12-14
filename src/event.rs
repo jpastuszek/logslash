@@ -19,25 +19,22 @@ pub trait FieldSerializer {
     fn serialize_field_str(&mut self, name: &str, value: &str) -> Result<(), Self::Error>;
     fn serialize_field_u64(&mut self, name: &str, value: u64) -> Result<(), Self::Error>;
     fn serialize_field_tags(&mut self, name: &str, tags: &[&'static str]) -> Result<(), Self::Error>;
+    fn finish(self) -> Result<(), Self::Error>;
 }
 
-struct SerdeFieldSerializer<'s, S> where S: Serializer + 's {
+pub struct SerdeFieldSerializer<'s, S> where S: Serializer + 's {
     serializer: &'s mut S,
     state: S::MapState,
 }
 
 impl<'s, S> SerdeFieldSerializer<'s, S> where S: Serializer + 's  {
-    fn from_serializer(serializer: &'s mut S) -> Result<Self, S::Error> {
-        let mut state = serializer.serialize_map(None)?;
+    pub fn new(serializer: &'s mut S) -> Result<Self, S::Error> {
+        let state = serializer.serialize_map(None)?;
 
         Ok(SerdeFieldSerializer {
             serializer: serializer,
             state: state
         })
-    }
-
-    fn finish(self) -> Result<(), S::Error> {
-        self.serializer.serialize_map_end(self.state)
     }
 }
 
@@ -58,6 +55,10 @@ impl<'s, S> FieldSerializer for SerdeFieldSerializer<'s, S> where S: Serializer 
         self.serializer.serialize_map_key(&mut self.state, name)?;
         self.serializer.serialize_map_value(&mut self.state, tags)
     }
+
+    fn finish(self) -> Result<(), Self::Error> {
+        self.serializer.serialize_map_end(self.state)
+    }
 }
 
 pub trait LogstashEvent {
@@ -72,24 +73,21 @@ pub trait LogstashEvent {
 }
 
 pub trait SerializeEvent {
-    // TODO: serializer should be FieldSerializer; then I can pass any to get data serialised
-    fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer;
+    fn serialize<F: FieldSerializer>(&self, serializer: F) -> Result<(), F::Error>;
 }
 
 impl<T> SerializeEvent for T where T: LogstashEvent {
-    fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
-        let mut filed_serializer = SerdeFieldSerializer::from_serializer(serializer)?;
+    fn serialize<F: FieldSerializer>(&self, mut serializer: F) -> Result<(), F::Error> {
+        serializer.serialize_field_str("@timestamp", &self.timestamp().to_rfc3339())?; //TODO: TZ should be 'Z'
+        serializer.serialize_field_str("@processed", &self.processed().to_rfc3339())?; //TODO: TZ should be 'Z'
+        serializer.serialize_field_str("@version", self.version())?;
+        serializer.serialize_field_str("@id", self.id().as_ref())?;
+        serializer.serialize_field_str("type", self.event_type())?;
+        serializer.serialize_field_tags("tags", self.tags().as_slice())?;
+        serializer.serialize_field_str("message", self.message().as_ref())?;
 
-        filed_serializer.serialize_field_str("@timestamp", &self.timestamp().to_rfc3339())?; //TODO: TZ should be 'Z'
-        filed_serializer.serialize_field_str("@processed", &self.processed().to_rfc3339())?; //TODO: TZ should be 'Z'
-        filed_serializer.serialize_field_str("@version", self.version())?;
-        filed_serializer.serialize_field_str("@id", self.id().as_ref())?;
-        filed_serializer.serialize_field_str("type", self.event_type())?;
-        filed_serializer.serialize_field_tags("tags", self.tags().as_slice())?;
-        filed_serializer.serialize_field_str("message", self.message().as_ref())?;
+        self.fields(&mut serializer)?;
 
-        self.fields(&mut filed_serializer)?;
-
-        filed_serializer.finish()
+        serializer.finish()
     }
 }

@@ -22,7 +22,7 @@ use input::syslog::tcp_syslog_input;
 
 use std::io::Cursor;
 use maybe_string::MaybeString;
-use event::SerializeEvent;
+use event::{SerializeEvent, SerdeFieldSerializer};
 
 fn main() {
     println!("Hello, world!");
@@ -36,7 +36,9 @@ fn main() {
 
             let data = Cursor::new(Vec::new());
             let mut ser = serde_json::ser::Serializer::new(data);
-            message.serialize(&mut ser).expect("serialized message");
+
+            message.serialize(SerdeFieldSerializer::new(&mut ser).expect("field serializer")).expect("serialized message");
+
             let json = ser.into_inner().into_inner();
             println!("JSON: {}", MaybeString(json));
 
