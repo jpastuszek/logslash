@@ -13,16 +13,13 @@ extern crate serde;
 extern crate serde_json;
 
 mod input;
+mod output;
 mod event;
 
-use futures::Stream;
 use tokio_core::reactor::Core;
 
 use input::syslog::tcp_syslog_input;
-
-use std::io::Cursor;
-use maybe_string::MaybeString;
-use event::{SerializeEvent, SerdeFieldSerializer, FieldSerializer};
+use output::debug::print_logstash;
 
 fn main() {
     println!("Hello, world!");
@@ -30,26 +27,8 @@ fn main() {
     let mut event_loop = Core::new().unwrap();
     let handle = event_loop.handle();
 
-    let input = tcp_syslog_input(handle, &"127.0.0.1:5514".parse().unwrap())
-        .for_each(|message| {
-            println!("Got syslog message: {:#?}", &message);
-
-            let data = Cursor::new(Vec::new());
-            let mut ser = serde_json::ser::Serializer::new(data);
-
-            {
-                let field_ser = SerdeFieldSerializer::new(&mut ser).expect("field serializer")
-                    .rename("severity", "log_level")
-                    .map_str("severity", |l| l.to_lowercase())
-                    .map_str("message", |m| m.replace("#012", "\n"));
-                message.serialize(field_ser).expect("serialized message");
-            }
-
-            let json = ser.into_inner().into_inner();
-            println!("JSON: {}", MaybeString(json));
-
-            Ok(())
-        });
-
-    event_loop.run(input).expect("successful event loop run");
+    let syslog = tcp_syslog_input(handle, &"127.0.0.1:5514".parse().unwrap());
+    //let output = print_debug(syslog);
+    let output = print_logstash(syslog);
+    event_loop.run(output).expect("successful event loop run");
 }
