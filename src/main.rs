@@ -11,6 +11,8 @@ fn main() {
     let handle = event_loop.handle();
 
     let syslog = tcp_syslog_input(handle, &"127.0.0.1:5514".parse().unwrap());
+    // syslog.rename() - need a future stream - Receiver is a Stream
+
     //let output = print_debug(syslog);
     let output = print_logstash(syslog);
     event_loop.run(output).expect("successful event loop run");

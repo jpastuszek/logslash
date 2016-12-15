@@ -120,6 +120,36 @@ impl SyslogEvent {
     }
 }
 
+use event::{SerdeJsonEvent, FieldValue};
+
+struct FieldsIterator<'f> {
+    fields: [(&'static name, FieldValue<'f>)]
+}
+
+impl<'f> Iterator for FieldsIterator<'f> {
+    type Item = FieldValue<'f>;
+
+     fn next(&mut self) -> Option<Self::Item> {
+         if let Some((ref (name, value), rest)) = fields.split_first() {
+             self.fields = rest;
+             Some((name, value))
+         } else {
+             None
+         }
+     }
+}
+
+impl<'f> SerdeJsonEvent {
+    type FieldsIter: FieldsIterator<'f>;
+
+    fn fileds(&self) -> Self::FieldsIter {
+        FieldsIterator {
+            fields: [
+            ]
+        }
+    }
+}
+
 impl LogstashEvent for SyslogEvent {
     fn timestamp(&self) -> DateTime<UTC> {
         self.timestamp.with_timezone(&UTC)

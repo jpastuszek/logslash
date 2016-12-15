@@ -179,3 +179,14 @@ impl<T> SerializeEvent for T where T: LogstashEvent {
         serializer.finish()
     }
 }
+
+pub enum FieldValue<'f> {
+    String(&'f str),
+    U64(u64),
+}
+
+pub trait SerdeJsonEvent<'f> {
+    type FieldsIter: Iterator<Item=(&'static str, FieldValue<'f>)>;
+
+    fn fields(&self) -> Self::FieldsIter;
+}
