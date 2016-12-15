@@ -208,28 +208,28 @@ impl LogstashEvent for SyslogEvent {
 }
 
 named!(priority<&[u8], u8>, return_error!(ErrorKind::Custom(1),
-    delimited!(tag!(b"<"), map_res!(take_until!(">1"), parse::int_u8), tag!(b">"))));
+    complete!(delimited!(tag!(b"<"), map_res!(take_until!(">1"), parse::int_u8), tag!(b">")))));
 
 named!(timestamp<&[u8], DateTime<FixedOffset> >, return_error!(ErrorKind::Custom(2),
-    terminated!(map_res!(take_until!(" "), parse::timestamp), tag!(b" "))));
+    complete!(terminated!(map_res!(take_until!(" "), parse::timestamp), tag!(b" ")))));
 
 named!(hostname<&[u8], &str>, return_error!(ErrorKind::Custom(3),
-    do_parse!(
+    complete!(do_parse!(
         not!(tag!("- ")) >>
         h: terminated!(map_res!(take_until!(" "), parse::string), tag!(b" ")) >>
         (h)
-    )));
+    ))));
 
-named!(opt_str<&[u8], Option<&str> >, map!(
+named!(opt_str<&[u8], Option<&str> >, complete!(map!(
         terminated!(map_res!(take_until!(" "), parse::string), tag!(b" ")),
         |s| if s == "-" { None } else { Some(s) }
-    ));
+    )));
 
 named!(program<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(4), opt_str));
 named!(proc_id<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(5), opt_str));
 named!(msg_id<&[u8], Option<&str> >, return_error!(ErrorKind::Custom(6), opt_str));
 
-named!(structured_data_param<&[u8], (&str, String)>, return_error!(ErrorKind::Custom(12), do_parse!(
+named!(structured_data_param<&[u8], (&str, String)>, return_error!(ErrorKind::Custom(12), complete!(do_parse!(
         name: map_res!(take_until!("="), parse::string) >>
         tag!(b"=\"") >>
         value: map!(
@@ -240,9 +240,9 @@ named!(structured_data_param<&[u8], (&str, String)>, return_error!(ErrorKind::Cu
                 .replace("\\]", "]")) >>
         tag!(b"\"") >>
         (name, value)
-    )));
+    ))));
 
-named!(structured_data_element<&[u8], StructuredElement>, return_error!(ErrorKind::Custom(11), do_parse!(
+named!(structured_data_element<&[u8], StructuredElement>, return_error!(ErrorKind::Custom(11), complete!(do_parse!(
         tag!(b"[") >>
         id: map_res!(take_until!(" "), parse::string) >>
         tag!(b" ") >>
@@ -252,7 +252,7 @@ named!(structured_data_element<&[u8], StructuredElement>, return_error!(ErrorKin
             id: id.to_owned(),
             params: params.into_iter().map(|(k, v)| (k.to_owned(), v)).collect()
         })
-    )));
+    ))));
 
 named!(sp_or_eof<&[u8], &[u8]>, alt!(eof!() | tag!(b" ")));
 
@@ -282,7 +282,7 @@ named!(message<&[u8], Option<Message> >, return_error!(ErrorKind::Custom(20), do
         (ret)
     )));
 
-named!(pub syslog_rfc5424<&[u8], SyslogEvent>, do_parse!(
+named!(pub syslog_rfc5424<&[u8], SyslogEvent>, complete!(do_parse!(
     facility: map_res!(peek!(priority), |p| Facility::from_priority(p)) >>
     severity: map!(priority, |p| Severity::from_priority(p)) >>
     tag!(b"1 ") >> // Fromat version 1
@@ -304,7 +304,7 @@ named!(pub syslog_rfc5424<&[u8], SyslogEvent>, do_parse!(
         structured_data: structured_data,
         message: message,
         processed: UTC::now(),
-    })));
+    }))));
 
 named!(pub syslog_rfc5425_frame<&[u8], &[u8]>, do_parse!(
         msg_len: return_error!(ErrorKind::Custom(1),
@@ -318,11 +318,7 @@ named!(pub syslog_rfc5424_in_rfc5425_frame<&[u8], SyslogEvent>,
 
 // framing not allowing to use \n in messages - use #012 to represent \n and replace in final
 // message
-named!(pub syslog_newline_frame<&[u8], &[u8]>, do_parse!(
-        syslog_msg: take_until!("\n") >>
-        tag!(b"\n") >>
-        (syslog_msg)
-    ));
+named!(pub syslog_newline_frame<&[u8], &[u8]>, terminated!(take_until!("\n"), tag!(b"\n")));
 
 named!(pub syslog_rfc5424_in_newline_frame<&[u8], SyslogEvent>, map!(
        flat_map!(call!(syslog_newline_frame), call!(syslog_rfc5424)),
@@ -404,11 +400,18 @@ mod syslog_newline_frame_tests {
         assert!(i.is_empty());
         assert_eq!(o, &b"baz"[..]);
     }
+
+    #[test]
+    fn incomplete() {
+        use nom::Needed;
+        let needed = syslog_newline_frame(b"fo").unwrap_inc();
+        assert_eq!(needed, Needed::Unknown);
+    }
 }
 
 #[cfg(test)]
 mod syslog_rfc5424_tests {
-    pub use super::{Timestamp, Message, Facility, Severity};
+    pub use super::{Message, Facility, Severity};
     pub use maybe_string::MaybeString;
     pub use nom::ErrorKind;
     use super::simple_errors::syslog_rfc5424;
@@ -429,9 +432,10 @@ mod syslog_rfc5424_tests {
 
     #[test]
     fn timestamp() {
+        use chrono::DateTime;
         let (i, o) = syslog_rfc5424(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 - foobar\n").unwrap();
         assert!(i.is_empty());
-        assert_eq!(o.timestamp, Timestamp::parse_from_rfc3339("2003-10-11T22:14:15.003Z").unwrap());
+        assert_eq!(o.timestamp, DateTime::parse_from_rfc3339("2003-10-11T22:14:15.003Z").unwrap());
     }
 
     #[test]
@@ -594,6 +598,13 @@ mod syslog_rfc5424_tests {
             let (i, o) = syslog_rfc5424_in_newline_frame(i).unwrap();
             assert!(i.is_empty());
             assert_eq!(o.message, Some(Message::MaybeString(MaybeString::from_bytes(b"foo".as_ref().to_owned()))));
+        }
+
+        #[test]
+        fn incomplete() {
+            use nom::Needed;
+            let needed = syslog_rfc5424_in_newline_frame(b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 - \xEF\xBB\xBFfoo").unwrap_inc();
+            assert_eq!(needed, Needed::Unknown);
         }
 
         #[test]
