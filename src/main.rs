@@ -1,8 +1,10 @@
 extern crate logslash;
+extern crate futures;
 
 use logslash::event_loop;
 use logslash::input::syslog::tcp_syslog_input;
-use logslash::output::debug::print_logstash;
+use logslash::output::debug::print_serde_json;
+use futures::stream::Stream;
 
 fn main() {
     println!("Hello, world!");
@@ -14,6 +16,7 @@ fn main() {
     // syslog.rename() - need a future stream - Receiver is a Stream
 
     //let output = print_debug(syslog);
-    let output = print_logstash(syslog);
-    event_loop.run(output).expect("successful event loop run");
+    let output = print_serde_json(syslog);
+    let outputs = output.map_err(|e| println!("problem with output: {:?}", e)).for_each(|_| Ok(()));
+    event_loop.run(outputs).expect("successful event loop run");
 }

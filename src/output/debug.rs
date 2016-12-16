@@ -1,6 +1,5 @@
 /*
 use futures::sync::mpsc;
-use futures::future::Future;
 use futures::Stream;
 use std::fmt::Debug;
 
@@ -38,32 +37,64 @@ pub fn print_logstash<T: LogstashEvent + 'static>(source: mpsc::Receiver<T>) -> 
 }
 */
 
+use std::fmt::Debug;
+use std::error::Error;
 use std::io::Cursor;
+use std::borrow::Cow;
 use maybe_string::MaybeString;
-use futures::future::Future;
-use event::{SerdeJsonEvent, FieldValue};
+use futures::Stream;
+use futures::stream::Then;
+use event::Event;
 use serde::Serializer;
 use serde_json;
+use chrono::{DateTime, UTC};
+
+pub trait DebugPort {
+}
+
+#[derive(Debug)]
+pub enum DebugOuputError<E> {
+    SerdeJsonError(serde_json::Error),
+    InputError(E)
+}
+
+//TODO: impl Error
+
+impl<E> From<serde_json::Error> for DebugOuputError<E> {
+    fn from(error: serde_json::Error) -> DebugOuputError<E> {
+        DebugOuputError::SerdeJsonError(error)
+    }
+}
 
 //TODO: take Serializer type to do stuff to fileds before serialized
-pub fn print_serde_json<'f, T: 'f + 'static, F: 'static, E>(source: F) -> Box<Future<Item=T, Error=serde_json::Error>> where T: SerdeJsonEvent<'f>, F: Future<Item=T, Error=serde_json::Error> {
-    fn serialize_and_print<'f, T: 'f + 'static>(event: T) -> Result<T, serde_json::Error> where T: SerdeJsonEvent<'f> {
-        let data = Cursor::new(Vec::new());
-        let mut serializer = serde_json::ser::Serializer::new(data);
+pub fn print_serde_json<T: 'static, F: 'static, E: 'static>(source: F) ->
+    Then<F, fn(Result<T, E>) -> Result<T, DebugOuputError<E>>, Result<T, DebugOuputError<E>>>
+    where T: Event, F: Stream<Item=T, Error=E>, T: DebugPort
+{
+    fn serialize_and_print<T: 'static, E: 'static>(event: Result<T, E>) -> Result<T, DebugOuputError<E>> where T: Event + DebugPort {
+        match event {
+            Ok(event) => {
+                let data = Cursor::new(Vec::new());
+                let mut serializer = serde_json::ser::Serializer::new(data);
 
-        let mut state = serializer.serialize_map(None)?;
-        for (ref name, ref value) in event.fields() {
-            serializer.serialize_map_key(&mut state, *name)?;
-            match *value {
-                FieldValue::String(ref value) => serializer.serialize_map_value(&mut state, value)?,
-                FieldValue::U64(value) => serializer.serialize_map_value(&mut state, value)?,
+                let mut state = serializer.serialize_map(None)?;
+                /*
+                for (ref name, ref value) in event.fields() {
+                    serializer.serialize_map_key(&mut state, *name)?;
+                    match *value {
+                        FieldValue::String(ref value) => serializer.serialize_map_value(&mut state, value)?,
+                        FieldValue::U64(value) => serializer.serialize_map_value(&mut state, value)?,
+                    }
+                }
+                */
+                serializer.serialize_map_end(state)?;
+
+                println!("{} - {}: {}", event.timestamp(), event.message().unwrap_or(Cow::Borrowed("<no message>")), MaybeString(serializer.into_inner().into_inner()));
+                Ok(event)
             }
+            Err(error) => Err(DebugOuputError::InputError(error))
         }
-        serializer.serialize_map_end(state)?;
-
-        println!("{}", MaybeString(serializer.into_inner().into_inner()));
-        Ok(event)
     }
 
-    Box::new(source.and_then(serialize_and_print))
+    source.then(serialize_and_print)
 }

@@ -120,10 +120,12 @@ impl SyslogEvent {
     }
 }
 
-use event::{SerdeJsonEvent, FieldValue};
+use event::Event;
+use output::debug::DebugPort;
 
+/*
 struct FieldsIterator<'f> {
-    fields: [(&'static name, FieldValue<'f>)]
+    fields: [(&'static name, fn(&SyslogEvent) -> FieldValue<'f>)]
 }
 
 impl<'f> Iterator for FieldsIterator<'f> {
@@ -138,17 +140,35 @@ impl<'f> Iterator for FieldsIterator<'f> {
          }
      }
 }
+*/
 
-impl<'f> SerdeJsonEvent {
-    type FieldsIter: FieldsIterator<'f>;
+impl Event for SyslogEvent {
+    fn id(&self) -> Cow<str> {
+        if let Some(ref msg_id) = self.msg_id {
+            Cow::Borrowed(msg_id)
+        } else {
+            Cow::Owned(Uuid::new_v4().simple().to_string())
+        }
+    }
 
-    fn fileds(&self) -> Self::FieldsIter {
-        FieldsIterator {
-            fields: [
-            ]
+    fn source(&self) -> Cow<str> {
+        Cow::Borrowed(&self.hostname)
+    }
+
+    fn timestamp(&self) -> DateTime<UTC> {
+        self.timestamp.with_timezone(&UTC)
+    }
+
+    fn message(&self) -> Option<Cow<str>> {
+        match self.message {
+            Some(Message::String(ref s)) => Some(Cow::Borrowed(s)),
+            Some(Message::MaybeString(ref ms)) => Some(Cow::Owned(ms.as_maybe_str().to_lossy_string())),
+            None => None
         }
     }
 }
+
+impl DebugPort for SyslogEvent {}
 
 impl LogstashEvent for SyslogEvent {
     fn timestamp(&self) -> DateTime<UTC> {

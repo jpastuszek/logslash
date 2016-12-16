@@ -2,6 +2,23 @@ use std::borrow::Cow;
 use chrono::{DateTime, UTC};
 use serde::ser::Serializer;
 
+//pub enum FieldValue<'f> {
+    //String(&'f str),
+    //U64(u64),
+//}
+
+pub trait Event {
+    //type FieldsIter: Iterator<Item=(&'static str, FieldValue<'f>)>;
+
+    fn id(&self) -> Cow<str>;
+    fn source(&self) -> Cow<str>;
+    fn timestamp(&self) -> DateTime<UTC>;
+    fn message(&self) -> Option<Cow<str>>;
+
+    //TODO: id, source, message
+    //fn fields(&self) -> Self::FieldsIter;
+}
+
 /* Logstash Event
  * * serializes as some kind of hash map with fields:
  * ** @timestamp (iso8601 e.g. 2013-02-09T20:39:26.234Z)
@@ -178,15 +195,4 @@ impl<T> SerializeEvent for T where T: LogstashEvent {
 
         serializer.finish()
     }
-}
-
-pub enum FieldValue<'f> {
-    String(&'f str),
-    U64(u64),
-}
-
-pub trait SerdeJsonEvent<'f> {
-    type FieldsIter: Iterator<Item=(&'static str, FieldValue<'f>)>;
-
-    fn fields(&self) -> Self::FieldsIter;
 }
