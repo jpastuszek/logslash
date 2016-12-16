@@ -34,12 +34,35 @@ pub trait Event {
 pub trait LogstashEvent {
     fn timestamp(&self) -> DateTime<UTC>;
     fn version(&self) -> &str { "1" }
+    //TODO: should be Optional
     fn message(&self) -> Cow<str>;
     fn event_type(&self) -> &str;
     fn tags(&self) -> Vec<&'static str>;
     fn processed(&self) -> DateTime<UTC>;
     fn id(&self) -> Cow<str>;
     fn fields<F: FieldSerializer>(&self, serializer: &mut F) -> Result<(), F::Error>;
+
+    fn to_event(self) -> LogstashEventToEvent<Self> where Self: Sized {
+        LogstashEventToEvent(self)
+    }
+}
+
+pub struct LogstashEventToEvent<T: LogstashEvent>(T);
+
+impl<T: LogstashEvent> Event for LogstashEventToEvent<T> {
+    fn id(&self) -> Cow<str> {
+        self.id()
+    }
+    fn source(&self) -> Cow<str> {
+        //TODO: ??
+        Cow::Borrowed("unknown")
+    }
+    fn timestamp(&self) -> DateTime<UTC> {
+        self.timestamp()
+    }
+    fn message(&self) -> Option<Cow<str>> {
+        self.message()
+    }
 }
 
 pub trait FieldSerializer {
