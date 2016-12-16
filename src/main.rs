@@ -17,6 +17,6 @@ fn main() {
 
     //let output = print_debug(syslog);
     let output = print_serde_json(syslog);
-    let outputs = output.map_err(|e| println!("problem with output: {:?}", e)).for_each(|_| Ok(()));
+    let outputs = output.map_err(|e| println!("Error while processing output: {}", e)).for_each(|_| Ok(()));
     event_loop.run(outputs).expect("successful event loop run");
 }

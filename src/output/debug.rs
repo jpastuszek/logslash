@@ -37,7 +37,7 @@ pub fn print_logstash<T: LogstashEvent + 'static>(source: mpsc::Receiver<T>) -> 
 }
 */
 
-use std::fmt::Debug;
+use std::fmt::{self, Display, Debug};
 use std::error::Error;
 use std::io::Cursor;
 use std::borrow::Cow;
@@ -47,31 +47,48 @@ use futures::stream::Then;
 use event::Event;
 use serde::Serializer;
 use serde_json;
-use chrono::{DateTime, UTC};
 
 pub trait DebugPort {
 }
 
 #[derive(Debug)]
-pub enum DebugOuputError<E> {
-    SerdeJsonError(serde_json::Error),
+pub enum DebugOuputError<E: Debug> {
+    SerdeJson(serde_json::Error),
     InputError(E)
 }
 
-//TODO: impl Error
-
-impl<E> From<serde_json::Error> for DebugOuputError<E> {
+impl<E: Debug> From<serde_json::Error> for DebugOuputError<E> {
     fn from(error: serde_json::Error) -> DebugOuputError<E> {
-        DebugOuputError::SerdeJsonError(error)
+        DebugOuputError::SerdeJson(error)
     }
 }
 
+impl<E: Debug> Display for DebugOuputError<E> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            DebugOuputError::SerdeJson(ref error) => write!(f, "{}: {}", self.description(), error),
+            DebugOuputError::InputError(ref error) => write!(f, "{}: {:?}", self.description(), error),
+        }
+    }
+}
+
+impl<E: Debug> Error for DebugOuputError<E> {
+    fn description(&self) -> &str {
+        match *self {
+            DebugOuputError::SerdeJson(_) => "Failed to serialise event into JSON",
+            DebugOuputError::InputError(_) => "Input error",
+        }
+    }
+}
+
+//TODO: what do we do with source errors?!? most imputs will never fail and therefore provied ()
+//error (Receiver) but what if they could fail?
 //TODO: take Serializer type to do stuff to fileds before serialized
-pub fn print_serde_json<T: 'static, F: 'static, E: 'static>(source: F) ->
+pub fn print_serde_json<F, T: 'static, E: 'static + Debug>(source: F) ->
     Then<F, fn(Result<T, E>) -> Result<T, DebugOuputError<E>>, Result<T, DebugOuputError<E>>>
-    where T: Event, F: Stream<Item=T, Error=E>, T: DebugPort
+    where F: Stream<Item=T, Error=E>, T: Event + DebugPort
 {
-    fn serialize_and_print<T: 'static, E: 'static>(event: Result<T, E>) -> Result<T, DebugOuputError<E>> where T: Event + DebugPort {
+    fn serialize_and_print<T, E: Debug>(event: Result<T, E>) -> Result<T, DebugOuputError<E>> where T: Event + DebugPort {
         match event {
             Ok(event) => {
                 let data = Cursor::new(Vec::new());
