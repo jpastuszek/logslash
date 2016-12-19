@@ -10,15 +10,14 @@ use futures::stream::Stream;
 
 struct SyslogDebugPortEvent(SyslogEvent);
 
-use std::borrow::Cow; use chrono::{DateTime, UTC};
-impl Event for SyslogDebugPortEvent {
-    fn id(&self) -> Cow<str> { self.0.id() }
-    fn source(&self) -> Cow<str> { self.0.source() }
-    fn timestamp(&self) -> DateTime<UTC> { self.0.timestamp() }
-    fn payload(&self) -> Option<Payload> { self.0.payload() }
-}
+use std::borrow::Cow;
+use chrono::{DateTime, UTC};
 
-impl DebugPort for SyslogDebugPortEvent { }
+impl DebugPort for SyslogDebugPortEvent {
+    fn id(&self) -> Cow<str> { self.0.id() }
+    fn timestamp(&self) -> DateTime<UTC> { self.0.timestamp() }
+    fn source(&self) -> Cow<str> { self.0.source() }
+}
 
 fn main() {
     println!("Hello, world!");

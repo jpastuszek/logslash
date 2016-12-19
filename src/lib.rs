@@ -15,6 +15,7 @@ extern crate serde_json;
 pub mod input;
 pub mod output;
 pub mod event;
+pub mod serialize;
 
 use tokio_core::reactor::Core;
 

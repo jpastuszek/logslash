@@ -40,76 +40,70 @@ pub fn print_logstash<T: LogstashEvent + 'static>(source: mpsc::Receiver<T>) -> 
 use std::fmt::{self, Display};
 use std::error::Error;
 use std::io::Cursor;
+use std::io::{self, Write};
 use std::borrow::Cow;
+use chrono::{DateTime, UTC};
 use maybe_string::MaybeString;
-use futures::Stream;
-use futures::stream::Then;
+use futures::{Future, Stream};
 use event::{Payload, Event};
+use serialize::Serialize;
 use serde::Serializer;
 use serde_json;
-
-pub trait DebugPort: Event {
+pub trait DebugPort {
+    fn id(&self) -> Cow<str>;
+    fn timestamp(&self) -> DateTime<UTC>;
+    fn source(&self) -> Cow<str>;
 }
 
+/*
 #[derive(Debug)]
-pub enum DebugOuputError {
-    SerdeJson(serde_json::Error),
+pub enum DebugOuputError<SE: Error> {
+    //TODO: chain errors?
+    Serialization(SE),
     InputClosed
 }
 
 impl From<serde_json::Error> for DebugOuputError {
     fn from(error: serde_json::Error) -> DebugOuputError {
-        DebugOuputError::SerdeJson(error)
+        DebugOuputError::Serialization(error)
     }
 }
 
-impl Display for DebugOuputError {
+impl<SE: Error> Display for DebugOuputError<SE> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            DebugOuputError::SerdeJson(ref error) => write!(f, "{}: {}", self.description(), error),
+            DebugOuputError::Serialization(ref error) => write!(f, "{}: {}", self.description(), error),
             DebugOuputError::InputClosed => write!(f, "{}", self.description()),
         }
     }
 }
 
-impl Error for DebugOuputError {
+impl<SE: Error> Error for DebugOuputError<SE> {
     fn description(&self) -> &str {
         match *self {
-            DebugOuputError::SerdeJson(_) => "Failed to serialise event into JSON",
+            DebugOuputError::Serialization(_) => "Failed to serialise event",
             DebugOuputError::InputClosed => "Input closed",
         }
     }
 }
+*/
 
-//TODO: take Serializer type to do stuff to fileds before serialized
-pub fn print_serde_json<F, T: 'static>(source: F) ->
-    Then<F, fn(Result<T, ()>) -> Result<T, DebugOuputError>, Result<T, DebugOuputError>>
-    where F: Stream<Item=T, Error=()>, T: DebugPort
+pub fn print_serde_json<F, S, SE: 'static, T: 'static>(source: F, serializer: S) -> Box<Stream<Item=T, Error=S::Error>>
+    where F: Stream<Item=T, Error=()>, T: DebugPort, S: Serialize<T, (), Output=String, Error=SE>
 {
-    fn serialize_and_print<T>(event: Result<T, ()>) -> Result<T, DebugOuputError> where T: DebugPort {
+    fn print<T, SE>(event: Result<T, ()>) -> Box<Future<Item=W, Error=Self::Error>> where T: DebugPort {
         match event {
             Ok(event) => {
-                let data = Cursor::new(Vec::new());
-                let mut serializer = serde_json::ser::Serializer::new(data);
+                //TODO: lock once if possible?!? - this may block the event loop no?
+                let stdout = io::stdout();
+                let mut handle = stdout.lock();
 
-                let mut state = serializer.serialize_map(None)?;
-                /*
-                for (ref name, ref value) in event.fields() {
-                    serializer.serialize_map_key(&mut state, *name)?;
-                    match *value {
-                        FieldValue::String(ref value) => serializer.serialize_map_value(&mut state, value)?,
-                        FieldValue::U64(value) => serializer.serialize_map_value(&mut state, value)?,
-                    }
-                }
-                */
-                serializer.serialize_map_end(state)?;
-
-                println!("{} - {}: {}", event.timestamp(), event.payload().unwrap_or(Payload::String(Cow::Borrowed("<no message>"))), MaybeString(serializer.into_inner().into_inner()));
-                Ok(event)
+                write!(&mut handle, "{} {}[{}] -- ",  event.id().as_ref(), event.timestamp(), event.source().as_ref());
+                serializer.serialize(handle, &event)
             }
-            Err(()) => Err(DebugOuputError::InputClosed)
+            Err(err) => Err(err)
         }
     }
 
-    source.then(serialize_and_print)
+    source.then(print)
 }

@@ -2,7 +2,6 @@ use std::borrow::Cow;
 use std::fmt;
 use maybe_string::MaybeStr;
 use chrono::{DateTime, UTC};
-use serde::ser::Serializer;
 
 //pub enum FieldValue<'f> {
     //String(&'f str),
@@ -58,9 +57,11 @@ pub trait LogstashEvent {
     fn tags(&self) -> Vec<&'static str>;
     fn processed(&self) -> DateTime<UTC>;
     fn id(&self) -> Cow<str>;
-    fn fields<F: FieldSerializer>(&self, serializer: &mut F) -> Result<(), F::Error>;
+    //fn fields<F: FieldSerializer>(&self, serializer: &mut F) -> Result<(), F::Error>;
 }
 
+/*
+ use serde::ser::Serializer;
 pub trait FieldSerializer {
     type Error;
     fn serialize_field_str(&mut self, name: &str, value: &str) -> Result<(), Self::Error>;
@@ -217,3 +218,4 @@ impl<T> SerializeEvent for T where T: LogstashEvent {
         serializer.finish()
     }
 }
+*/

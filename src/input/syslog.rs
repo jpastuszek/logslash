@@ -1,6 +1,6 @@
 use super::nom::tcp_nom_input;
 use super::parse;
-use event::{Payload, Event, LogstashEvent, FieldSerializer};
+use event::{Payload, Event, LogstashEvent};
 use std::net::SocketAddr;
 use std::collections::HashMap;
 use std::mem;
@@ -198,6 +198,7 @@ impl LogstashEvent for SyslogEvent {
         }
     }
 
+    /*
     fn fields<F: FieldSerializer>(&self, serializer: &mut F) -> Result<(), F::Error> {
         serializer.serialize_field_str("logsource", &self.hostname)?;
 
@@ -250,6 +251,7 @@ impl LogstashEvent for SyslogEvent {
         }
         Ok(())
     }
+    */
 }
 
 named!(priority<&[u8], u8>, return_error!(ErrorKind::Custom(1),
