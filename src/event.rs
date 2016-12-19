@@ -1,4 +1,6 @@
 use std::borrow::Cow;
+use std::fmt;
+use maybe_string::MaybeStr;
 use chrono::{DateTime, UTC};
 use serde::ser::Serializer;
 
@@ -7,13 +9,30 @@ use serde::ser::Serializer;
     //U64(u64),
 //}
 
+#[derive(Debug, PartialEq)]
+pub enum Payload<'e> {
+    String(Cow<'e, str>),
+    Data(Cow<'e, MaybeStr>)
+}
+
+impl<'e> fmt::Display for Payload<'e> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Payload::String(Cow::Borrowed(ref s)) => write!(f, "{}", s),
+            Payload::String(Cow::Owned(ref s)) => write!(f, "{}", s),
+            Payload::Data(Cow::Borrowed(ref s)) => write!(f, "<DATA>{}", s),
+            Payload::Data(Cow::Owned(ref s)) => write!(f, "<DATA>{}", s),
+        }
+    }
+}
+
 pub trait Event {
     //type FieldsIter: Iterator<Item=(&'static str, FieldValue<'f>)>;
 
     fn id(&self) -> Cow<str>;
     fn source(&self) -> Cow<str>;
     fn timestamp(&self) -> DateTime<UTC>;
-    fn message(&self) -> Option<Cow<str>>;
+    fn payload(&self) -> Option<Payload>;
 
     //TODO: id, source, message
     //fn fields(&self) -> Self::FieldsIter;

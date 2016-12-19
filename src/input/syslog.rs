@@ -1,6 +1,6 @@
 use super::nom::tcp_nom_input;
 use super::parse;
-use event::{LogstashEvent, FieldSerializer};
+use event::{Payload, Event, LogstashEvent, FieldSerializer};
 use std::net::SocketAddr;
 use std::collections::HashMap;
 use std::mem;
@@ -120,9 +120,6 @@ impl SyslogEvent {
     }
 }
 
-use event::Event;
-use output::debug::DebugPort;
-
 /*
 struct FieldsIterator<'f> {
     fields: [(&'static name, fn(&SyslogEvent) -> FieldValue<'f>)]
@@ -159,16 +156,14 @@ impl Event for SyslogEvent {
         self.timestamp.with_timezone(&UTC)
     }
 
-    fn message(&self) -> Option<Cow<str>> {
+    fn payload(&self) -> Option<Payload> {
         match self.message {
-            Some(Message::String(ref s)) => Some(Cow::Borrowed(s)),
-            Some(Message::MaybeString(ref ms)) => Some(Cow::Owned(ms.as_maybe_str().to_lossy_string())),
+            Some(Message::String(ref s)) => Some(Payload::String(Cow::Borrowed(s))),
+            Some(Message::MaybeString(ref ms)) => Some(Payload::Data(Cow::Borrowed(ms))),
             None => None
         }
     }
 }
-
-impl DebugPort for SyslogEvent {}
 
 impl LogstashEvent for SyslogEvent {
     fn timestamp(&self) -> DateTime<UTC> {

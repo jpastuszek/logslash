@@ -44,7 +44,7 @@ use std::borrow::Cow;
 use maybe_string::MaybeString;
 use futures::Stream;
 use futures::stream::Then;
-use event::Event;
+use event::{Payload, Event};
 use serde::Serializer;
 use serde_json;
 
@@ -104,7 +104,7 @@ pub fn print_serde_json<F, T: 'static>(source: F) ->
                 */
                 serializer.serialize_map_end(state)?;
 
-                println!("{} - {}: {}", event.timestamp(), event.message().unwrap_or(Cow::Borrowed("<no message>")), MaybeString(serializer.into_inner().into_inner()));
+                println!("{} - {}: {}", event.timestamp(), event.payload().unwrap_or(Payload::String(Cow::Borrowed("<no message>"))), MaybeString(serializer.into_inner().into_inner()));
                 Ok(event)
             }
             Err(()) => Err(DebugOuputError::InputClosed)
