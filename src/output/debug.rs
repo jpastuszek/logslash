@@ -48,7 +48,7 @@ use event::Event;
 use serde::Serializer;
 use serde_json;
 
-pub trait DebugPort {
+pub trait DebugPort: Event {
 }
 
 #[derive(Debug)]
@@ -84,9 +84,9 @@ impl Error for DebugOuputError {
 //TODO: take Serializer type to do stuff to fileds before serialized
 pub fn print_serde_json<F, T: 'static>(source: F) ->
     Then<F, fn(Result<T, ()>) -> Result<T, DebugOuputError>, Result<T, DebugOuputError>>
-    where F: Stream<Item=T, Error=()>, T: Event + DebugPort
+    where F: Stream<Item=T, Error=()>, T: DebugPort
 {
-    fn serialize_and_print<T>(event: Result<T, ()>) -> Result<T, DebugOuputError> where T: Event + DebugPort {
+    fn serialize_and_print<T>(event: Result<T, ()>) -> Result<T, DebugOuputError> where T: DebugPort {
         match event {
             Ok(event) => {
                 let data = Cursor::new(Vec::new());

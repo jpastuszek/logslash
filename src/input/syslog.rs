@@ -175,11 +175,11 @@ impl LogstashEvent for SyslogEvent {
         self.timestamp.with_timezone(&UTC)
     }
 
-    fn message(&self) -> Cow<str> {
+    fn message(&self) -> Option<Cow<str>> {
         match self.message {
-            Some(Message::String(ref s)) => Cow::Borrowed(s),
-            Some(Message::MaybeString(ref ms)) => Cow::Owned(ms.as_maybe_str().to_lossy_string()),
-            None => Cow::Borrowed("< wow such empty >"),
+            Some(Message::String(ref s)) => Some(Cow::Borrowed(s)),
+            Some(Message::MaybeString(ref ms)) => Some(Cow::Owned(ms.as_maybe_str().to_lossy_string())),
+            None => None
         }
     }
 
