@@ -1,109 +1,102 @@
-/*
-use futures::sync::mpsc;
-use futures::Stream;
-use std::fmt::Debug;
-
-pub fn print_debug<T: Debug + 'static>(source: mpsc::Receiver<T>) -> Box<Future<Item=(),Error=()>> {
-    Box::new(source.for_each(|message| {
-        println!("{:#?}", &message);
-        Ok(())
-    }))
-}
-
-use std::io::Cursor;
-use maybe_string::MaybeString;
-use event::{LogstashEvent, SerializeEvent, SerdeFieldSerializer, FieldSerializer};
-use serde_json::ser::Serializer;
-
-pub fn print_logstash<T: LogstashEvent + 'static>(source: mpsc::Receiver<T>) -> Box<Future<Item=(),Error=()>> {
-    Box::new(source.for_each(|message| {
-        let data = Cursor::new(Vec::new());
-        let mut ser = Serializer::new(data);
-
-        {
-            let field_ser = SerdeFieldSerializer::new(&mut ser).expect("field serializer")
-                .rename("severity", "log_level")
-                .map_str("severity", |l| l.to_lowercase())
-                .map_str("message", |m| m.replace("#012", "\n"));
-            message.serialize(field_ser).expect("serialized message");
-        }
-
-        let json = ser.into_inner().into_inner();
-        // TODO error handling
-        println!("{}", MaybeString(json));
-
-        Ok(())
-    }))
-}
-*/
-
-use std::fmt::{self, Display};
+use std::fmt::{self, Display, Debug};
 use std::error::Error;
-use std::io::Cursor;
-use std::io::{self, Write};
 use std::borrow::Cow;
+use std::io::Error as IoError;
+use std::io::stdout;
+use futures::{IntoFuture, Future, Stream};
+use futures::sync::mpsc::{channel, Sender, Receiver};
+use tokio_core::io::write_all;
+use tokio_core::reactor::Handle;
 use chrono::{DateTime, UTC};
-use maybe_string::MaybeString;
-use futures::{Future, Stream};
-use event::{Payload, Event};
 use serialize::Serialize;
-use serde::Serializer;
-use serde_json;
+
 pub trait DebugPort {
     fn id(&self) -> Cow<str>;
     fn timestamp(&self) -> DateTime<UTC>;
     fn source(&self) -> Cow<str>;
 }
 
-/*
 #[derive(Debug)]
-pub enum DebugOuputError<SE: Error> {
+pub enum DebugOuputError<IE, SE> {
     //TODO: chain errors?
+    Input(IE),
     Serialization(SE),
-    InputClosed
+    Io(IoError),
 }
 
-impl From<serde_json::Error> for DebugOuputError {
-    fn from(error: serde_json::Error) -> DebugOuputError {
-        DebugOuputError::Serialization(error)
-    }
-}
-
-impl<SE: Error> Display for DebugOuputError<SE> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            DebugOuputError::Serialization(ref error) => write!(f, "{}: {}", self.description(), error),
-            DebugOuputError::InputClosed => write!(f, "{}", self.description()),
-        }
-    }
-}
-
-impl<SE: Error> Error for DebugOuputError<SE> {
-    fn description(&self) -> &str {
-        match *self {
-            DebugOuputError::Serialization(_) => "Failed to serialise event",
-            DebugOuputError::InputClosed => "Input closed",
-        }
+/*
+impl<T: Debug> From<mpsc::SendError<T>> for NomInputError<T> {
+    fn from(send_error: mpsc::SendError<T>) -> NomInputError<T> {
+        NomInputError::SendError(send_error.into_inner())
     }
 }
 */
 
-pub fn print_serde_json<F, S, SE: 'static, T: 'static>(source: F, serializer: S) -> Box<Stream<Item=T, Error=S::Error>>
-    where F: Stream<Item=T, Error=()>, T: DebugPort, S: Serialize<T, (), Output=String, Error=SE>
-{
-    fn print<T, SE>(event: Result<T, ()>) -> Box<Future<Item=W, Error=Self::Error>> where T: DebugPort {
-        match event {
-            Ok(event) => {
-                //TODO: lock once if possible?!? - this may block the event loop no?
-                let stdout = io::stdout();
-                let mut handle = stdout.lock();
+impl<IE, SE> From<IoError> for DebugOuputError<IE, SE> {
+    fn from(error: IoError) -> DebugOuputError<IE, SE> {
+        DebugOuputError::Io(error)
+    }
+}
 
-                write!(&mut handle, "{} {}[{}] -- ",  event.id().as_ref(), event.timestamp(), event.source().as_ref());
-                serializer.serialize(handle, &event)
-            }
-            Err(err) => Err(err)
+impl<IE: Debug + Display, SE: Debug + Display> Display for DebugOuputError<IE, SE> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            DebugOuputError::Input(ref error) => write!(f, "{}: {}", self.description(), error),
+            DebugOuputError::Io(ref error) => write!(f, "{}: {}", self.description(), error),
+            DebugOuputError::Serialization(ref error) => write!(f, "{}: {}", self.description(), error),
         }
     }
+}
 
-    source.then(print)
+impl<IE: Debug + Display, SE: Debug + Display> Error for DebugOuputError<IE, SE> {
+    fn description(&self) -> &str {
+        match *self {
+            DebugOuputError::Input(_) => "Source of events failed",
+            DebugOuputError::Io(_) => "I/O error while writing debug output",
+            DebugOuputError::Serialization(_) => "Failed to serialise event",
+        }
+    }
+}
+
+pub fn print_serde_json<S, T, IE, SE>(handle: Handle, serializer: S) -> Sender<Result<T, IE>> where T: DebugPort + Debug + 'static, S: Serialize<T, Error=SE> + 'static, SE: Error + 'static, IE: Display + Debug + 'static {
+    let (sender, receiver): (Sender<Result<T, IE>>, Receiver<Result<T, IE>>) = channel(100);
+
+    // TOOD: how do I capture state for whole future
+    //let stdout = io::stdout();
+    //let mut handle = stdout.lock();
+
+    let pipe = receiver
+        .map(move |event|
+             event
+            .map_err(|err| DebugOuputError::Input(err))
+            .and_then(|event| match serializer.serialize(&event) {
+                Ok(body) => {
+                    let header = format!("{} {}[{}] -- ",  event.id().as_ref(), event.timestamp(), event.source().as_ref());
+                    Ok((header, body))
+                },
+                Err(error) => Err(DebugOuputError::Serialization(error))
+            })
+        )
+        .and_then(move |result|
+            result
+            .into_future()
+            .and_then(|(header, body)| {
+                 write_all(stdout(), header)
+                .and_then(|(stdout, _buf)| write_all(stdout, body))
+                .map(|(_stdout, _buf)| ())
+                .map_err(|err| DebugOuputError::Io(err))
+            }).map_err(|err| {
+                println!("Failed to write debug output: {}", err);
+                ()
+            })
+        );
+
+    handle.spawn(pipe.for_each(|_| Ok(())));
+
+    /*
+    sender.with(|message| {
+        ok::<T, DebugOuputError<T>>(message)
+    })
+    */
+    sender
 }
