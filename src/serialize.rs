@@ -6,7 +6,7 @@ pub trait Serialize<T> {
 }
 
 // By default we can serialize any Event to JSON with serde
-use event::{Event, Payload};
+use event::{Event, LogstashEvent, Payload};
 use serde_json::error::Error as JsonError;
 use serde_json::ser::Serializer as JsonSerializer;
 use serde::Serializer;
@@ -43,6 +43,45 @@ impl<T: Event> Serialize<T> for JsonEventSerializer {
                 }
             }
         }
+
+        serializer.serialize_map_end(state)?;
+        Ok(serializer.into_inner().into_inner())
+    }
+}
+
+#[derive(Default)]
+pub struct JsonLogstashEventSerializer;
+
+impl<T: LogstashEvent> Serialize<T> for JsonLogstashEventSerializer {
+    type Error = JsonError;
+
+    fn serialize(&self, event: &T) -> Result<Vec<u8>, Self::Error> {
+        let mut serializer = JsonSerializer::new(Cursor::new(Vec::new()));
+        let mut state = serializer.serialize_map(None)?;
+
+        serializer.serialize_map_key(&mut state, "@timestamp")?;
+        serializer.serialize_map_value(&mut state, event.timestamp().to_rfc3339())?;
+
+        serializer.serialize_map_key(&mut state, "@version")?;
+        serializer.serialize_map_value(&mut state, event.version())?;
+
+        if let Some(message) = event.message() {
+            serializer.serialize_map_key(&mut state, "message")?;
+            serializer.serialize_map_value(&mut state, message)?;
+
+        }
+
+        serializer.serialize_map_key(&mut state, "type")?;
+        serializer.serialize_map_value(&mut state, event.event_type())?;
+
+        serializer.serialize_map_key(&mut state, "tags")?;
+        serializer.serialize_map_value(&mut state, event.tags())?;
+
+        serializer.serialize_map_key(&mut state, "@processed")?;
+        serializer.serialize_map_value(&mut state, event.processed().to_rfc3339())?;
+
+        serializer.serialize_map_key(&mut state, "@id")?;
+        serializer.serialize_map_value(&mut state, event.id())?;
 
         serializer.serialize_map_end(state)?;
         Ok(serializer.into_inner().into_inner())
