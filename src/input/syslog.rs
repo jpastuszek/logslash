@@ -6,11 +6,12 @@ use std::collections::HashMap;
 use std::mem;
 use std::borrow::Cow;
 use tokio_core::reactor::Handle;
-use futures::sync::mpsc;
+use futures::Stream;
 use nom::{ErrorKind, rest};
 use maybe_string::{MaybeStr, MaybeString};
 use chrono::{DateTime, UTC, FixedOffset};
 use uuid::Uuid;
+use PipeError;
 
 // TODO: use &str instead of String; make OwnedSyslogMessage variant that is Send
 
@@ -412,7 +413,7 @@ pub mod simple_errors {
            |m: SyslogEvent| m.decode_newlines()));
 }
 
-pub fn tcp_syslog_input(handle: Handle, addr: &SocketAddr) -> mpsc::Receiver<SyslogEvent> {
+pub fn tcp_syslog_input<IE, OE>(handle: Handle, addr: &SocketAddr) -> Box<Stream<Item=SyslogEvent, Error=PipeError<IE, ()>>> {
     //tcp_nom_input("syslog", handle, addr, simple_errors::syslog_rfc5424_in_rfc5425_frame)
     tcp_nom_input("syslog", handle, addr, simple_errors::syslog_rfc5424_in_newline_frame)
 }

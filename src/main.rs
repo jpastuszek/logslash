@@ -6,8 +6,9 @@ use logslash::event_loop;
 use logslash::event::{Payload, Event};
 use logslash::input::syslog::{SyslogEvent, tcp_syslog_input};
 use logslash::output::debug::{DebugPort, print_serde_json};
-use futures::stream::Stream;
+use futures::{Future, Stream};
 
+#[derive(Debug)]
 struct SyslogDebugPortEvent(SyslogEvent);
 
 use std::borrow::Cow;
@@ -19,9 +20,7 @@ impl DebugPort for SyslogDebugPortEvent {
     fn source(&self) -> Cow<str> { self.0.source() }
 }
 
-fn main() {
-    println!("Hello, world!");
-
+fn main() { println!("Hello, world!");
     let mut event_loop = event_loop();
     let handle = event_loop.handle();
 
@@ -32,9 +31,9 @@ fn main() {
 
     let print = print_serde_json(handle, "serializer");
 
+    //TODO: input and ouptut need to provide some printable error when they fail
     let pipe = syslog.map(SyslogDebugPortEvent).forward(print)
-        .map_err(|e| println!("Error while processing output: {}", e))
-        .for_each(|_| Ok(()));
+        .map_err(|e| println!("Error while processing pipe: {:?}", e));
 
     event_loop.run(pipe).expect("successful event loop run");
 }

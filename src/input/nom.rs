@@ -15,6 +15,7 @@ use tokio_core::net::TcpListener;
 use tokio_core::reactor::Handle;
 
 use nom::{IResult, ErrorKind};
+use PipeError;
 
 pub type NomParser<T> = fn(&[u8]) -> IResult<&[u8], T, &'static str>;
 
@@ -108,7 +109,7 @@ impl<T: Debug> Error for NomInputError<T> {
     }
 }
 
-pub fn tcp_nom_input<T>(name: &'static str, handle: Handle, addr: &SocketAddr, parser: NomParser<T>) -> mpsc::Receiver<T> where T: Debug + 'static {
+pub fn tcp_nom_input<T, IE>(name: &'static str, handle: Handle, addr: &SocketAddr, parser: NomParser<T>) -> Box<Stream<Item=T, Error=PipeError<IE, ()>>> where T: Debug + 'static {
     let (sender, receiver) = mpsc::channel(10);
     let listener_handle = handle.clone();
 
@@ -136,5 +137,6 @@ pub fn tcp_nom_input<T>(name: &'static str, handle: Handle, addr: &SocketAddr, p
 
     listener_handle.spawn(listener);
 
-    receiver
+    //TODO: provide error stream
+    Box::new(receiver.map_err(|_| PipeError::Output(())))
 }
