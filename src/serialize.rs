@@ -5,6 +5,50 @@ pub trait Serialize<T> {
     fn serialize(&self, event: &T) -> Result<Vec<u8>, Self::Error>;
 }
 
+// By default we can serialize any Event to JSON with serde
+use event::{Event, Payload};
+use serde_json::error::Error as JsonError;
+use serde_json::ser::Serializer as JsonSerializer;
+use serde::Serializer;
+use std::io::Cursor;
+
+#[derive(Default)]
+pub struct JsonEventSerializer;
+
+impl<T: Event> Serialize<T> for JsonEventSerializer {
+    type Error = JsonError;
+
+    fn serialize(&self, event: &T) -> Result<Vec<u8>, Self::Error> {
+        let mut serializer = JsonSerializer::new(Cursor::new(Vec::new()));
+        let mut state = serializer.serialize_map(None)?;
+
+        serializer.serialize_map_key(&mut state, "id")?;
+        serializer.serialize_map_value(&mut state, event.id())?;
+
+        serializer.serialize_map_key(&mut state, "source")?;
+        serializer.serialize_map_value(&mut state, event.source())?;
+
+        serializer.serialize_map_key(&mut state, "timestamp")?;
+        serializer.serialize_map_value(&mut state, event.timestamp().to_rfc3339())?;
+
+        if let Some(payload) = event.payload() {
+            match payload {
+                Payload::String(s) => {
+                    serializer.serialize_map_key(&mut state, "message")?;
+                    serializer.serialize_map_value(&mut state, s)?;
+                }
+                Payload::Data(s) => {
+                    serializer.serialize_map_key(&mut state, "data")?;
+                    serializer.serialize_map_value(&mut state, s.as_ref().as_bytes())?;
+                }
+            }
+        }
+
+        serializer.serialize_map_end(state)?;
+        Ok(serializer.into_inner().into_inner())
+    }
+}
+
 /*
 pub trait Serialize<T, E> {
     type Output;

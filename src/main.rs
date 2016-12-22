@@ -5,7 +5,8 @@ extern crate chrono;
 use logslash::event_loop;
 use logslash::event::{Payload, Event};
 use logslash::input::syslog::{SyslogEvent, tcp_syslog_input};
-use logslash::output::debug::{DebugPort, print_serde_json};
+use logslash::output::debug::{DebugPort, print_event};
+use logslash::serialize::JsonEventSerializer;
 use futures::{Future, Stream};
 
 #[derive(Debug)]
@@ -13,6 +14,13 @@ struct SyslogDebugPortEvent(SyslogEvent);
 
 use std::borrow::Cow;
 use chrono::{DateTime, UTC};
+
+impl Event for SyslogDebugPortEvent {
+    fn id(&self) -> Cow<str> { self.0.id() }
+    fn source(&self) -> Cow<str> { self.0.source() }
+    fn timestamp(&self) -> DateTime<UTC> { self.0.timestamp() }
+    fn payload(&self) -> Option<Payload> { self.0.payload() }
+}
 
 impl DebugPort for SyslogDebugPortEvent {
     fn id(&self) -> Cow<str> { self.0.id() }
@@ -29,7 +37,7 @@ fn main() { println!("Hello, world!");
 
     //let output = print_debug(syslog);
 
-    let print = print_serde_json(handle, "serializer");
+    let print = print_event(handle, JsonEventSerializer::default());
 
     //TODO: input and ouptut need to provide some printable error when they fail
     let pipe = syslog.map(SyslogDebugPortEvent).forward(print)

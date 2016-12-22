@@ -38,7 +38,7 @@ impl<SE: Debug + Display> Error for DebugOuputError<SE> {
     }
 }
 
-pub fn print_serde_json<S, T, IE, SE>(handle: Handle, serializer: S) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Debug + 'static, S: Serialize<T, Error=SE> + 'static, SE: Error + 'static, IE: 'static {
+pub fn print_event<S, T, IE, SE>(handle: Handle, serializer: S) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Debug + 'static, S: Serialize<T, Error=SE> + 'static, SE: Error + 'static, IE: 'static {
     let (sender, receiver): (Sender<T>, Receiver<T>) = channel(100);
 
     // TOOD: how do I capture state for whole future
@@ -47,8 +47,9 @@ pub fn print_serde_json<S, T, IE, SE>(handle: Handle, serializer: S) -> Box<Sink
 
     let pipe = receiver
         .map(move |event| match serializer.serialize(&event) {
-            Ok(body) => {
-                let header = format!("{} {}[{}] -- ",  event.id().as_ref(), event.timestamp(), event.source().as_ref());
+            Ok(mut body) => {
+                let header = format!("{} {} [{}] -- ",  event.id().as_ref(), event.source().as_ref(), event.timestamp());
+                body.push(b"\n"[0]);
                 Ok((header, body))
             },
             Err(error) => Err(DebugOuputError::Serialization(error))

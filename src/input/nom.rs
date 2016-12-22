@@ -109,7 +109,7 @@ impl<T: Debug> Error for NomInputError<T> {
     }
 }
 
-pub fn tcp_nom_input<T, IE>(name: &'static str, handle: Handle, addr: &SocketAddr, parser: NomParser<T>) -> Box<Stream<Item=T, Error=PipeError<IE, ()>>> where T: Debug + 'static {
+pub fn tcp_nom_input<T, OE>(name: &'static str, handle: Handle, addr: &SocketAddr, parser: NomParser<T>) -> Box<Stream<Item=T, Error=PipeError<(), OE>>> where T: Debug + 'static {
     let (sender, receiver) = mpsc::channel(10);
     let listener_handle = handle.clone();
 
@@ -138,5 +138,5 @@ pub fn tcp_nom_input<T, IE>(name: &'static str, handle: Handle, addr: &SocketAdd
     listener_handle.spawn(listener);
 
     //TODO: provide error stream
-    Box::new(receiver.map_err(|_| PipeError::Output(())))
+    Box::new(receiver.map_err(|_| PipeError::Input(())))
 }

@@ -413,7 +413,7 @@ pub mod simple_errors {
            |m: SyslogEvent| m.decode_newlines()));
 }
 
-pub fn tcp_syslog_input<IE, OE>(handle: Handle, addr: &SocketAddr) -> Box<Stream<Item=SyslogEvent, Error=PipeError<IE, ()>>> {
+pub fn tcp_syslog_input<OE>(handle: Handle, addr: &SocketAddr) -> Box<Stream<Item=SyslogEvent, Error=PipeError<(), OE>>> {
     //tcp_nom_input("syslog", handle, addr, simple_errors::syslog_rfc5424_in_rfc5425_frame)
     tcp_nom_input("syslog", handle, addr, simple_errors::syslog_rfc5424_in_newline_frame)
 }
