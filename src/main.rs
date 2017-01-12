@@ -13,9 +13,16 @@ use std::borrow::Cow;
 use chrono::{DateTime, UTC};
 
 //TODO:
+// * support for arbitary fileds in messages
+// * renames
 // * use structured logging
+// * proper nom errors with dumps etc
 // * reduce expect/unwrap for pipeline setup?
+// * parse common syslog messages
+// * auto-select syslog parser based on message
+// * benches
 // * use CPU thread pools for processing of inputs and outputs
+// * dead letters and parsing error logging
 
 #[derive(Debug)]
 struct SyslogDebugPortEvent(SyslogEvent);

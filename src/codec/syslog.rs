@@ -1,4 +1,3 @@
-use event::{Payload, Event, LogstashEvent};
 use std::collections::HashMap;
 use std::mem;
 use std::borrow::Cow;
@@ -10,6 +9,8 @@ use uuid::Uuid;
 use codec::parse;
 use codec::nom::NomCodec;
 use codec::IntoCodec;
+
+use event::{Payload, MetaValue, Event, LogstashEvent};
 
 // TODO: use &str instead of String; make OwnedSyslogMessage variant that is Send
 
@@ -138,7 +139,12 @@ impl<'f> Iterator for FieldsIterator<'f> {
 }
 */
 
+//TODO: implement iterator for meta
+use std::iter::Empty;
+
 impl Event for SyslogEvent {
+    type MetaIterator = Empty<(&'static str, MetaValue)>;
+
     fn id(&self) -> Cow<str> {
         if let Some(ref msg_id) = self.msg_id {
             Cow::Borrowed(msg_id)
@@ -161,6 +167,10 @@ impl Event for SyslogEvent {
             Some(Message::MaybeString(ref ms)) => Some(Payload::Data(Cow::Borrowed(ms))),
             None => None
         }
+    }
+
+    fn meta(&self) -> Self::MetaIterator {
+        Empty::default()
     }
 }
 

@@ -54,6 +54,7 @@ pub struct JsonLogstashEventSerializer;
 
 impl<T: LogstashEvent> Serialize<T> for JsonLogstashEventSerializer {
     type Error = JsonError;
+    // type Mapper
 
     fn serialize(&self, event: &T) -> Result<Vec<u8>, Self::Error> {
         let mut serializer = JsonSerializer::new(Cursor::new(Vec::new()));
@@ -68,7 +69,6 @@ impl<T: LogstashEvent> Serialize<T> for JsonLogstashEventSerializer {
         if let Some(message) = event.message() {
             serializer.serialize_map_key(&mut state, "message")?;
             serializer.serialize_map_value(&mut state, message)?;
-
         }
 
         serializer.serialize_map_key(&mut state, "type")?;

@@ -2,7 +2,7 @@ Goals
 ===
 * Fast
 * Precise parsing error messages with dumps etc.
-* Dead letter box with message reprocessing tools
+* Dead letter spool with message reprocessing tools
 * Programable
 * Input/filter/output library including syslog, Kafka, filed renaming, value mapping etc.
 
@@ -46,3 +46,11 @@ Logslash Events
 ---
 Serialized with SerDe to all it's supported formats.
 Every Input type implements Event trait and each Port is implemented for it.
+Message and custom fields can be parsed with function that will take value and return iterator of extra fileds.
+Fileds can be renamed before serialization happens.
+
+Dead Letter Spool
+---
+Specialised for actual event type.
+Actaul event types need to be (de)seserializable for storage.
+We don't want to go through any generic format to not to loose any important details of the message.

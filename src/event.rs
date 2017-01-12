@@ -3,10 +3,19 @@ use std::fmt;
 use maybe_string::MaybeStr;
 use chrono::{DateTime, UTC};
 
-//pub enum FieldValue<'f> {
-    //String(&'f str),
-    //U64(u64),
-//}
+/// Event Serialisation Requirements
+///
+/// This traits represent different requirements on data availablity from actual event data
+/// structures for different output formats
+/// The Event trati is the minimal format that is used internaly for example for logging
+/// The LogstashEvent is a loose specification for logstash compatible event format
+/// By implementing this traits source event structures can enable this formats to be produced from
+/// them by different Serializers
+
+pub enum MetaValue {
+    String(String), // TODO: Cow?
+    U64(u64),
+}
 
 #[derive(Debug, PartialEq)]
 pub enum Payload<'e> {
@@ -26,15 +35,13 @@ impl<'e> fmt::Display for Payload<'e> {
 }
 
 pub trait Event {
-    //type FieldsIter: Iterator<Item=(&'static str, FieldValue<'f>)>;
+    type MetaIterator: Iterator<Item=(&'static str, MetaValue)>;
 
     fn id(&self) -> Cow<str>;
     fn source(&self) -> Cow<str>;
     fn timestamp(&self) -> DateTime<UTC>;
     fn payload(&self) -> Option<Payload>;
-
-    //TODO: id, source, message
-    //fn fields(&self) -> Self::FieldsIter;
+    fn meta(&self) -> Self::MetaIterator;
 }
 
 pub trait AsEvent {
@@ -43,10 +50,14 @@ pub trait AsEvent {
 }
 
 impl<T> Event for T where T: AsEvent {
+    //type MetaIterator = T::Event::MetaIterator;
+    type MetaIterator = <<T as AsEvent>::Event as Event>::MetaIterator;
+
     fn id(&self) -> Cow<str> { self.as_event().id() }
     fn source(&self) -> Cow<str> { self.as_event().source() }
     fn timestamp(&self) -> DateTime<UTC> { self.as_event().timestamp() }
     fn payload(&self) -> Option<Payload> { self.as_event().payload() }
+    fn meta(&self) -> Self::MetaIterator { self.as_event().meta() }
 }
 
 /* Logstash Event
