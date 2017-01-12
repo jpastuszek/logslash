@@ -14,6 +14,7 @@ extern crate serde_json;
 
 pub mod input;
 pub mod output;
+pub mod codec;
 pub mod event;
 pub mod serialize;
 
