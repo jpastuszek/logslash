@@ -7,6 +7,7 @@ use logslash::event::{Event, AsEvent, AsLogstashEvent};
 use logslash::input::syslog::{SyslogEvent, tcp_syslog_input};
 use logslash::output::debug::{DebugPort, print_event};
 use logslash::serialize::JsonLogstashEventSerializer;
+
 use futures::{Future, Stream};
 use std::borrow::Cow;
 use chrono::{DateTime, UTC};
