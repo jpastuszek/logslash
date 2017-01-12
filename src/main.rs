@@ -11,6 +11,11 @@ use futures::{Future, Stream};
 use std::borrow::Cow;
 use chrono::{DateTime, UTC};
 
+//TODO:
+// * use structured logging
+// * reduce expect/unwrap for pipeline setup?
+// * use CPU thread pools for processing of inputs and outputs
+
 #[derive(Debug)]
 struct SyslogDebugPortEvent(SyslogEvent);
 
@@ -34,7 +39,7 @@ impl DebugPort for SyslogDebugPortEvent {
     fn source(&self) -> Cow<str> { self.0.source() }
 }
 
-fn main() { println!("Hello, world!");
+fn main() {
     let mut event_loop = event_loop();
     let handle = event_loop.handle();
 
