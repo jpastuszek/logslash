@@ -124,23 +124,11 @@ impl SyslogEvent {
     }
 }
 
-struct MetaIterator<'i> {
-    inner: iter::FlatMap<slice::Iter<'i, StructuredElement>, hash_map::Iter<'i, String, String>, fn(&'i StructuredElement) -> hash_map::Iter<'i, String, String>>
+/*
+struct FieldIterator<'i> {
 }
 
-impl<'i> MetaIterator<'i> {
-    fn new(structured_elements: &'i[StructuredElement]) -> MetaIterator<'i> {
-        fn params<'i>(se: &'i StructuredElement) -> hash_map::Iter<'i, String, String> {
-            se.params.iter()
-        }
-
-        MetaIterator {
-            inner: structured_elements.iter().flat_map(params)
-        }
-    }
-}
-
-impl<'i> Iterator for MetaIterator<'i> {
+impl<'i> Iterator for FieldIterator<'i> {
     type Item = (&'i str, MetaValue<'i>);
 
      fn next(&mut self) -> Option<Self::Item> {
@@ -148,6 +136,31 @@ impl<'i> Iterator for MetaIterator<'i> {
              return Some((key, MetaValue::String(value)))
          }
          None
+     }
+}
+*/
+
+struct StructuredElementsIterator<'i> {
+    inner: iter::FlatMap<slice::Iter<'i, StructuredElement>, hash_map::Iter<'i, String, String>, fn(&'i StructuredElement) -> hash_map::Iter<'i, String, String>>
+}
+
+impl<'i> StructuredElementsIterator<'i> {
+    fn new(structured_elements: &'i[StructuredElement]) -> StructuredElementsIterator<'i> {
+        fn params<'i>(se: &'i StructuredElement) -> hash_map::Iter<'i, String, String> {
+            se.params.iter()
+        }
+
+        StructuredElementsIterator {
+            inner: structured_elements.iter().flat_map(params)
+        }
+    }
+}
+
+impl<'i> Iterator for StructuredElementsIterator<'i> {
+    type Item = (&'i str, MetaValue<'i>);
+
+     fn next(&mut self) -> Option<Self::Item> {
+         self.inner.next().map(|(key, value)| (key.as_str(), MetaValue::String(value.as_str())))
      }
 }
 
@@ -178,9 +191,9 @@ impl Event for SyslogEvent {
 
     fn meta<'i>(&'i self) -> Box<Iterator<Item=(&'i str, MetaValue<'i>)> + 'i> {
         if let Some(ref sd) = self.structured_data {
-            Box::new(MetaIterator::new(&sd.elements))
+            Box::new(StructuredElementsIterator::new(&sd.elements))
         } else {
-            Box::new(MetaIterator::new(&[]))
+            Box::new(StructuredElementsIterator::new(&[]))
         }
     }
 }
