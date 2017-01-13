@@ -44,13 +44,18 @@ impl<T: Event> Serialize<T> for JsonEventSerializer {
             }
         }
 
+        serializer.serialize_map_key(&mut state, "meta")?;
+
+        let mut meta = serializer.serialize_map(None)?;
         for (key, value) in event.meta() {
-            serializer.serialize_map_key(&mut state, key)?;
+            serializer.serialize_map_key(&mut meta, key)?;
             match value {
-                MetaValue::String(ref v) => serializer.serialize_map_value(&mut state, v)?,
-                MetaValue::U64(ref v) => serializer.serialize_map_value(&mut state, v)?,
+                MetaValue::String(ref v) => serializer.serialize_map_value(&mut meta, v)?,
+                MetaValue::U64(ref v) => serializer.serialize_map_value(&mut meta, v)?,
             }
         }
+        serializer.serialize_map_end(meta)?;
+        //serializer.serialize_map_value(&mut state, meta)?;
 
         serializer.serialize_map_end(state)?;
         Ok(serializer.into_inner().into_inner())
