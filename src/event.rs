@@ -29,8 +29,8 @@ impl<'e> fmt::Display for Payload<'e> {
     }
 }
 
-pub enum MetaValue {
-    String(String), // TODO: Cow?
+pub enum MetaValue<'i> {
+    String(&'i str), // TODO: Cow?
     U64(u64),
 }
 
@@ -39,7 +39,7 @@ pub trait Event {
     fn source(&self) -> Cow<str>;
     fn timestamp(&self) -> DateTime<UTC>;
     fn payload(&self) -> Option<Payload>;
-    fn meta<'i>(&'i self) -> Box<Iterator<Item=(String, MetaValue)> + 'i>;
+    fn meta<'i>(&'i self) -> Box<Iterator<Item=(&'i str, MetaValue<'i>)> + 'i>;
 }
 
 pub trait AsEvent {
@@ -52,7 +52,7 @@ impl<T> Event for T where T: AsEvent {
     fn source(&self) -> Cow<str> { self.as_event().source() }
     fn timestamp(&self) -> DateTime<UTC> { self.as_event().timestamp() }
     fn payload(&self) -> Option<Payload> { self.as_event().payload() }
-    fn meta<'i>(&'i self) -> Box<Iterator<Item=(String, MetaValue)> + 'i> { self.as_event().meta() }
+    fn meta<'i>(&'i self) -> Box<Iterator<Item=(&'i str, MetaValue<'i>)> + 'i> { self.as_event().meta() }
 }
 
 /* Logstash Event

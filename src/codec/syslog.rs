@@ -124,13 +124,13 @@ impl SyslogEvent {
     }
 }
 
-struct MetaIterator<'a> {
-    inner: iter::FlatMap<slice::Iter<'a, StructuredElement>, hash_map::Iter<'a, String, String>, fn(&'a StructuredElement) -> hash_map::Iter<'a, String, String>>
+struct MetaIterator<'i> {
+    inner: iter::FlatMap<slice::Iter<'i, StructuredElement>, hash_map::Iter<'i, String, String>, fn(&'i StructuredElement) -> hash_map::Iter<'i, String, String>>
 }
 
-impl<'a> MetaIterator<'a> {
-    fn new(structured_elements: &'a[StructuredElement]) -> MetaIterator<'a> {
-        fn params<'a>(se: &'a StructuredElement) -> hash_map::Iter<'a, String, String> {
+impl<'i> MetaIterator<'i> {
+    fn new(structured_elements: &'i[StructuredElement]) -> MetaIterator<'i> {
+        fn params<'i>(se: &'i StructuredElement) -> hash_map::Iter<'i, String, String> {
             se.params.iter()
         }
 
@@ -140,12 +140,12 @@ impl<'a> MetaIterator<'a> {
     }
 }
 
-impl<'a> Iterator for MetaIterator<'a> {
-    type Item = (String, MetaValue);
+impl<'i> Iterator for MetaIterator<'i> {
+    type Item = (&'i str, MetaValue<'i>);
 
      fn next(&mut self) -> Option<Self::Item> {
          if let Some((key, value)) = self.inner.next() {
-             return Some((key.to_owned(), MetaValue::String(value.to_owned())))
+             return Some((key, MetaValue::String(value)))
          }
          None
      }
@@ -176,7 +176,7 @@ impl Event for SyslogEvent {
         }
     }
 
-    fn meta<'i>(&'i self) -> Box<Iterator<Item=(String, MetaValue)> + 'i> {
+    fn meta<'i>(&'i self) -> Box<Iterator<Item=(&'i str, MetaValue<'i>)> + 'i> {
         if let Some(ref sd) = self.structured_data {
             Box::new(MetaIterator::new(&sd.elements))
         } else {
