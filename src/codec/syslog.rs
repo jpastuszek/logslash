@@ -109,6 +109,7 @@ pub struct SyslogEvent {
     pub msg_id: Option<String>,
     pub structured_data: Option<StructuredData>,
     pub message: Option<Message>,
+    //TODO: shold this be required in Event format?
     pub processed: DateTime<UTC>,
 }
 
@@ -133,6 +134,10 @@ impl<'i> FieldIterator<'i> {
     fn new(event: &'i SyslogEvent) -> FieldIterator<'i> {
         fn program(event: &SyslogEvent) -> Option<MetaValue> {
             event.program.as_ref().map(|v| MetaValue::String(v))
+        }
+
+        fn proc_id(event: &SyslogEvent) -> Option<MetaValue> {
+            event.proc_id.as_ref().map(|v| MetaValue::String(v))
         }
 
         fn facility(event: &SyslogEvent) -> Option<MetaValue> {
@@ -177,8 +182,9 @@ impl<'i> FieldIterator<'i> {
             }))
         }
 
-        static FIELDS: [(&'static str, fn(&SyslogEvent) -> Option<MetaValue>); 3] = [
+        static FIELDS: [(&'static str, fn(&SyslogEvent) -> Option<MetaValue>); 4] = [
             ("program", program),
+            ("proc_id", proc_id),
             ("facility", facility),
             ("severity", severity),
         ];
