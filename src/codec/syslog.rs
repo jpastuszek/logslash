@@ -124,21 +124,87 @@ impl SyslogEvent {
     }
 }
 
-/*
 struct FieldIterator<'i> {
+    event: &'i SyslogEvent,
+    fields: slice::Iter<'i, (&'static str, fn(&'i SyslogEvent) -> Option<MetaValue<'i>>)>
+}
+
+impl<'i> FieldIterator<'i> {
+    fn new(event: &'i SyslogEvent) -> FieldIterator<'i> {
+        fn program(event: &SyslogEvent) -> Option<MetaValue> {
+            event.program.as_ref().map(|v| MetaValue::String(v))
+        }
+
+        fn facility(event: &SyslogEvent) -> Option<MetaValue> {
+            Some(MetaValue::String(match event.facility {
+                Facility::KernelMessages => "kernel",
+                Facility::UserLevelMessages => "user-level",
+                Facility::MailSystem => "mail",
+                Facility::SystemDaemons => "system",
+                Facility::SecurityMessages => "security/authorization",
+                Facility::Internal => "syslogd",
+                Facility::LinePrinterSubsystem => "line printer",
+                Facility::NetworkNewsSubsystem => "network news",
+                Facility::UucpSubsystem => "UUCP",
+                Facility::ClockDaemon => "clock",
+                Facility::AuthPrivMessage => "security/authorization",
+                Facility::FtpDaemon => "FTP",
+                Facility::NtpSubsystem => "NTP",
+                Facility::LogAudit => "log audit",
+                Facility::LogAlert => "log alert",
+                Facility::SchedulingDaemon => "clock",
+                Facility::Local0 => "local0",
+                Facility::Local1 => "local1",
+                Facility::Local2 => "local2",
+                Facility::Local3 => "local3",
+                Facility::Local4 => "local4",
+                Facility::Local5 => "local5",
+                Facility::Local6 => "local6",
+                Facility::Local7 => "local7",
+            }))
+        }
+
+        fn severity(event: &SyslogEvent) -> Option<MetaValue> {
+            Some(MetaValue::String(match event.severity {
+                Severity::Emergency => "Emergency",
+                Severity::Alert => "Alert",
+                Severity::Critical => "Critical",
+                Severity::Error => "Error",
+                Severity::Warning => "Warning",
+                Severity::Notice => "Notice",
+                Severity::Informational => "Informational",
+                Severity::Debug => "Debug",
+            }))
+        }
+
+        static FIELDS: [(&'static str, fn(&SyslogEvent) -> Option<MetaValue>); 3] = [
+            ("program", program),
+            ("facility", facility),
+            ("severity", severity),
+        ];
+
+        FieldIterator {
+            event: event,
+            fields: FIELDS.iter()
+        }
+    }
 }
 
 impl<'i> Iterator for FieldIterator<'i> {
     type Item = (&'i str, MetaValue<'i>);
 
      fn next(&mut self) -> Option<Self::Item> {
-         if let Some((key, value)) = self.inner.next() {
-             return Some((key, MetaValue::String(value)))
+         if let Some(&(ref key, ref fun)) = self.fields.next() {
+             if let Some(value) = fun(self.event) {
+                 Some((key, value))
+             } else {
+                 self.next()
+             }
+         } else {
+             None
          }
-         None
      }
 }
-*/
 
 struct StructuredElementsIterator<'i> {
     inner: iter::FlatMap<slice::Iter<'i, StructuredElement>, hash_map::Iter<'i, String, String>, fn(&'i StructuredElement) -> hash_map::Iter<'i, String, String>>
@@ -190,11 +256,12 @@ impl Event for SyslogEvent {
     }
 
     fn meta<'i>(&'i self) -> Box<Iterator<Item=(&'i str, MetaValue<'i>)> + 'i> {
-        if let Some(ref sd) = self.structured_data {
-            Box::new(StructuredElementsIterator::new(&sd.elements))
-        } else {
-            Box::new(StructuredElementsIterator::new(&[]))
-        }
+        Box::new(
+            FieldIterator::new(self)
+            .chain(StructuredElementsIterator::new(self.structured_data
+                                                   .as_ref()
+                                                   .map(|sd| sd.elements.as_slice())
+                                                   .unwrap_or(&[]))))
     }
 }
 
