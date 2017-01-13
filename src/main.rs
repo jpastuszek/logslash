@@ -6,7 +6,8 @@ use logslash::event_loop;
 use logslash::event::{Event, AsEvent, AsLogstashEvent};
 use logslash::input::syslog::{SyslogEvent, tcp_syslog_input};
 use logslash::output::debug::{DebugPort, print_event};
-use logslash::serialize::JsonLogstashEventSerializer;
+//use logslash::serialize::JsonLogstashEventSerializer;
+use logslash::serialize::JsonEventSerializer;
 
 use futures::{Future, Stream};
 use std::borrow::Cow;
@@ -56,7 +57,8 @@ fn main() {
 
     //let output = print_debug(syslog);
 
-    let print = print_event(handle, JsonLogstashEventSerializer::default());
+    //let print = print_event(handle, JsonLogstashEventSerializer::default());
+    let print = print_event(handle, JsonEventSerializer::default());
 
     //TODO: input and ouptut need to provide some printable error when they fail
     let pipe = syslog.map(SyslogDebugPortEvent).forward(print)

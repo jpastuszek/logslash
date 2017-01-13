@@ -6,7 +6,7 @@ pub trait Serialize<T> {
 }
 
 // By default we can serialize any Event to JSON with serde
-use event::{Event, LogstashEvent, Payload};
+use event::{Event, LogstashEvent, Payload, MetaValue};
 use serde_json::error::Error as JsonError;
 use serde_json::ser::Serializer as JsonSerializer;
 use serde::Serializer;
@@ -41,6 +41,14 @@ impl<T: Event> Serialize<T> for JsonEventSerializer {
                     serializer.serialize_map_key(&mut state, "data")?;
                     serializer.serialize_map_value(&mut state, s.as_ref().as_bytes())?;
                 }
+            }
+        }
+
+        for (key, value) in event.meta() {
+            serializer.serialize_map_key(&mut state, key)?;
+            match value {
+                MetaValue::String(ref v) => serializer.serialize_map_value(&mut state, v)?,
+                MetaValue::U64(ref v) => serializer.serialize_map_value(&mut state, v)?,
             }
         }
 

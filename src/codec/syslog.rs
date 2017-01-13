@@ -1,6 +1,10 @@
 use std::collections::HashMap;
 use std::mem;
 use std::borrow::Cow;
+use std::iter;
+use std::slice;
+use std::collections::hash_map;
+
 use nom::{ErrorKind, rest};
 use maybe_string::{MaybeStr, MaybeString};
 use chrono::{DateTime, UTC, FixedOffset};
@@ -120,31 +124,34 @@ impl SyslogEvent {
     }
 }
 
-/*
-struct FieldsIterator<'f> {
-    fields: [(&'static name, fn(&SyslogEvent) -> FieldValue<'f>)]
+struct MetaIterator<'a> {
+    inner: iter::FlatMap<slice::Iter<'a, StructuredElement>, hash_map::Iter<'a, String, String>, fn(&'a StructuredElement) -> hash_map::Iter<'a, String, String>>
 }
 
-impl<'f> Iterator for FieldsIterator<'f> {
-    type Item = FieldValue<'f>;
+impl<'a> MetaIterator<'a> {
+    fn new(structured_elements: &'a[StructuredElement]) -> MetaIterator<'a> {
+        fn params<'a>(se: &'a StructuredElement) -> hash_map::Iter<'a, String, String> {
+            se.params.iter()
+        }
+
+        MetaIterator {
+            inner: structured_elements.iter().flat_map(params)
+        }
+    }
+}
+
+impl<'a> Iterator for MetaIterator<'a> {
+    type Item = (String, MetaValue);
 
      fn next(&mut self) -> Option<Self::Item> {
-         if let Some((ref (name, value), rest)) = fields.split_first() {
-             self.fields = rest;
-             Some((name, value))
-         } else {
-             None
+         if let Some((key, value)) = self.inner.next() {
+             return Some((key.to_owned(), MetaValue::String(value.to_owned())))
          }
+         None
      }
 }
-*/
-
-//TODO: implement iterator for meta
-use std::iter::Empty;
 
 impl Event for SyslogEvent {
-    type MetaIterator = Empty<(&'static str, MetaValue)>;
-
     fn id(&self) -> Cow<str> {
         if let Some(ref msg_id) = self.msg_id {
             Cow::Borrowed(msg_id)
@@ -169,8 +176,12 @@ impl Event for SyslogEvent {
         }
     }
 
-    fn meta(&self) -> Self::MetaIterator {
-        Empty::default()
+    fn meta<'i>(&'i self) -> Box<Iterator<Item=(String, MetaValue)> + 'i> {
+        if let Some(ref sd) = self.structured_data {
+            Box::new(MetaIterator::new(&sd.elements))
+        } else {
+            Box::new(MetaIterator::new(&[]))
+        }
     }
 }
 
