@@ -15,6 +15,24 @@ use std::io::Cursor;
 #[derive(Default)]
 pub struct JsonEventSerializer;
 
+fn serialize_map_meta_value<S>(serializer: &mut S, state: &mut S::MapState, meta_value: MetaValue) -> Result<(), <S as Serializer>::Error> where S: Serializer {
+    match meta_value {
+        MetaValue::String(v) => serializer.serialize_map_value(state, v)?,
+        MetaValue::U64(v) => serializer.serialize_map_value(state, v)?,
+        MetaValue::Object(iter) => {
+            let mut obj = serializer.serialize_map(None)?;
+
+            for (key, value) in iter {
+                serializer.serialize_map_key(&mut obj, key)?;
+                serialize_map_meta_value(serializer, &mut obj, value)?;
+            }
+
+            serializer.serialize_map_end(obj)?;
+        }
+    }
+    Ok(())
+}
+
 impl<T: Event> Serialize<T> for JsonEventSerializer {
     type Error = JsonError;
 
@@ -44,16 +62,10 @@ impl<T: Event> Serialize<T> for JsonEventSerializer {
             }
         }
 
-        serializer.serialize_map_key(&mut state, "meta")?;
-        let mut meta = serializer.serialize_map(None)?;
         for (key, value) in event.meta() {
-            serializer.serialize_map_key(&mut meta, key)?;
-            match value {
-                MetaValue::String(ref v) => serializer.serialize_map_value(&mut meta, v)?,
-                MetaValue::U64(ref v) => serializer.serialize_map_value(&mut meta, v)?,
-            }
+            serializer.serialize_map_key(&mut state, key)?;
+            serialize_map_meta_value(&mut serializer, &mut state, value)?;
         }
-        serializer.serialize_map_end(meta)?;
 
         serializer.serialize_map_end(state)?;
         Ok(serializer.into_inner().into_inner())

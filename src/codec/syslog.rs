@@ -3,6 +3,7 @@ use std::mem;
 use std::borrow::Cow;
 use std::iter;
 use std::slice;
+use std::iter::once;
 use std::collections::hash_map;
 
 use nom::{ErrorKind, rest};
@@ -21,6 +22,7 @@ use event::{Payload, MetaValue, Event, LogstashEvent};
 #[derive(Debug, Clone)]
 pub struct StructuredElement {
     pub id: String,
+    //TODO: use Vec<(String, String)> instead - no need for random access
     pub params: HashMap<String, String>
 }
 
@@ -263,12 +265,14 @@ impl Event for SyslogEvent {
 
     fn meta<'i>(&'i self) -> Box<Iterator<Item=(&'i str, MetaValue<'i>)> + 'i> {
         Box::new(
-            FieldIterator::new(self)
+            once(("syslog", MetaValue::Object(Box::new(FieldIterator::new(self)))))
             .chain(StructuredElementsIterator::new(self.structured_data
                                                    .as_ref()
                                                    .map(|sd| sd.elements.as_slice())
                                                    .unwrap_or(&[]))))
     }
+
+    //TODO: way to attach meta iterator chains e.g. process_meta(|m| m.filter(foo).map(bar))
 }
 
 impl LogstashEvent for SyslogEvent {

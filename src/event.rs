@@ -32,6 +32,7 @@ impl<'e> fmt::Display for Payload<'e> {
 pub enum MetaValue<'i> {
     String(&'i str), // TODO: Cow?
     U64(u64),
+    Object(Box<Iterator<Item=(&'i str, MetaValue<'i>)> + 'i>),
 }
 
 pub trait Event {
