@@ -3,12 +3,12 @@ extern crate futures;
 extern crate chrono;
 
 use logslash::event_loop;
-use logslash::event::{Event, AsEvent, AsLogstashEvent};
+use logslash::event::Event;
 use logslash::input::syslog::{SyslogEvent, tcp_syslog_input};
 use logslash::output::debug::{DebugPort, print_event};
-//use logslash::serialize::JsonLogstashEventSerializer;
+use logslash::serialize::Serializer;
 use logslash::serialize::JsonEventSerializer;
-use logslash::serialize::JsonError;
+//use logslash::serialize::JsonLogstashEventSerializer;
 
 use futures::{Future, Stream};
 use std::borrow::Cow;
@@ -30,29 +30,23 @@ use chrono::{DateTime, UTC};
 #[derive(Debug)]
 struct SyslogDebugPortEvent(SyslogEvent);
 
-impl AsEvent for SyslogDebugPortEvent {
-    type Event = SyslogEvent;
-    fn as_event(&self) -> &SyslogEvent {
-        &self.0
-    }
-}
-
-impl AsLogstashEvent for SyslogDebugPortEvent {
-    type LogstashEvent = SyslogEvent;
-    fn as_logstash_event(&self) -> &SyslogEvent {
-        &self.0
-    }
-}
-
 impl DebugPort for SyslogDebugPortEvent {
     fn id(&self) -> Cow<str> { self.0.id() }
     fn timestamp(&self) -> DateTime<UTC> { self.0.timestamp() }
     fn source(&self) -> Cow<str> { self.0.source() }
 
-    type SerializeError = JsonError;
-    fn serialize<W: Write>(&self, out: W) -> Result<W, Self::SerializeError> {
-        JsonEventSerializer::write(self.as_event(), out)
+    type SerializeError = <JsonEventSerializer as Serializer<SyslogEvent>>::Error;
+    fn write_payload<W: Write>(&self, out: W) -> Result<W, Self::SerializeError> {
+        JsonEventSerializer::serialize(&self.0, out)
     }
+
+    /*
+    type SerializeError = <JsonLogstashEventSerializer as Serializer<SyslogEvent>>::Error;
+    fn write_payload<W: Write>(&self, out: W) -> Result<W, Self::SerializeError> {
+        //JsonEventSerializer::serialize(&self.0, out)
+        JsonLogstashEventSerializer::serialize(&self.0, out)
+    }
+    */
 }
 
 fn main() {
@@ -62,10 +56,7 @@ fn main() {
     let syslog = tcp_syslog_input(handle.clone(), &"127.0.0.1:5514".parse().unwrap());
     // syslog.rename() - need a future stream - Receiver is a Stream
 
-    //let output = print_debug(syslog);
-
-    //let print = print_event(handle, JsonLogstashEventSerializer::default());
-    let print = print_event(handle, JsonEventSerializer::default());
+    let print = print_event(handle);
 
     //TODO: input and ouptut need to provide some printable error when they fail
     let pipe = syslog.map(SyslogDebugPortEvent).forward(print)

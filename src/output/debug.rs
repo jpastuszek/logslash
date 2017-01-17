@@ -10,7 +10,6 @@ use futures::sync::mpsc::{channel, Sender, Receiver};
 use tokio_core::io::write_all;
 use tokio_core::reactor::Handle;
 use chrono::{DateTime, UTC};
-use serialize::Serialize;
 use PipeError;
 
 pub trait DebugPort {
@@ -18,7 +17,7 @@ pub trait DebugPort {
     fn id(&self) -> Cow<str>;
     fn timestamp(&self) -> DateTime<UTC>;
     fn source(&self) -> Cow<str>;
-    fn serialize<W: Write>(&self, out: W) -> Result<W, Self::SerializeError>;
+    fn write_payload<W: Write>(&self, out: W) -> Result<W, Self::SerializeError>;
 }
 
 #[derive(Debug)]
@@ -42,7 +41,7 @@ impl<SE: Debug + Display> Error for DebugOuputError<SE> {
     }
 }
 
-pub fn print_event<S, T, IE, SE>(handle: Handle, serializer: S) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Debug + 'static, S: Serialize<T, Error=SE> + 'static, SE: Error + 'static, IE: 'static {
+pub fn print_event<T, IE>(handle: Handle) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Debug + 'static, IE: 'static {
     let (sender, receiver): (Sender<T>, Receiver<T>) = channel(100);
 
     // TOOD: how do I capture state for whole future
@@ -52,7 +51,7 @@ pub fn print_event<S, T, IE, SE>(handle: Handle, serializer: S) -> Box<Sink<Sink
     //TODO: no need for Cursor here; just write body directly to stdout
     let pipe = receiver
         .map(move |event| {
-            match event.serialize(Cursor::new(Vec::new())) {
+            match event.write_payload(Cursor::new(Vec::new())) {
                 Ok(out) => {
                     let header = format!("{} {} [{}] -- ",  event.id().as_ref(), event.source().as_ref(), event.timestamp());
                     let mut body = out.into_inner();

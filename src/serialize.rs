@@ -1,18 +1,17 @@
 use std::error::Error;
 
-pub trait Serialize<T> {
-    type Error: Error;
-    fn serialize(&self, event: &T) -> Result<Vec<u8>, Self::Error>;
-}
-
 // By default we can serialize any Event to JSON with serde
 use event::{Event, LogstashEvent, Payload, MetaValue};
 use serde::ser::SerializeMap;
-use serde::Serializer;
-pub use serde_json::error::Error as JsonError;
+use serde::Serializer as SerdeSerializer;
+use serde_json::error::Error as JsonError;
 use serde_json::ser::Serializer as JsonSerializer;
-use std::io::Cursor;
 use std::io::Write;
+
+pub trait Serializer<T> {
+    type Error: Error;
+    fn serialize<W: Write>(event: &T, out: W) -> Result<W, Self::Error>;
+}
 
 #[derive(Default)]
 pub struct JsonEventSerializer;
@@ -37,8 +36,10 @@ fn serialize_map_meta_value<'a, S>(serializer: &'a mut S, state: &mut <&'a mut S
 }
 */
 
-impl JsonEventSerializer {
-    pub fn write<T: Event, W: Write>(event: &T, out: W) -> Result<W, JsonError> {
+impl<T: Event> Serializer<T> for JsonEventSerializer {
+    type Error = JsonError;
+
+    fn serialize<W: Write>(event: &T, out: W) -> Result<W, JsonError> {
         let mut serializer = JsonSerializer::new(out);
         {
             let mut state = serializer.serialize_map(None)?;
@@ -78,58 +79,14 @@ impl JsonEventSerializer {
     }
 }
 
-impl<T: Event> Serialize<T> for JsonEventSerializer {
-    type Error = JsonError;
-
-    fn serialize(&self, event: &T) -> Result<Vec<u8>, Self::Error> {
-        let mut serializer = JsonSerializer::new(Cursor::new(Vec::new()));
-        {
-            let mut state = serializer.serialize_map(None)?;
-
-            state.serialize_key("id")?;
-            state.serialize_value(event.id())?;
-
-            state.serialize_key("source")?;
-            state.serialize_value(event.source())?;
-
-            state.serialize_key("timestamp")?;
-            state.serialize_value(event.timestamp().to_rfc3339())?;
-
-            if let Some(payload) = event.payload() {
-                match payload {
-                    Payload::String(s) => {
-                        state.serialize_key("message")?;
-                        state.serialize_value(s)?;
-                    }
-                    Payload::Data(s) => {
-                        state.serialize_key("data")?;
-                        state.serialize_value(s.as_ref().as_bytes())?;
-                    }
-                }
-            }
-
-            /*
-            for (key, value) in event.meta() {
-                state.serialize_key(key)?;
-                serialize_map_meta_value(&mut serializer, &mut state, value)?;
-            }
-            */
-
-            state.end()?;
-        }
-        Ok(serializer.into_inner().into_inner())
-    }
-}
-
 #[derive(Default)]
 pub struct JsonLogstashEventSerializer;
 
-impl<T: LogstashEvent> Serialize<T> for JsonLogstashEventSerializer {
+impl<T: LogstashEvent> Serializer<T> for JsonLogstashEventSerializer {
     type Error = JsonError;
-    // type Mapper
 
-    fn serialize(&self, event: &T) -> Result<Vec<u8>, Self::Error> {
-        let mut serializer = JsonSerializer::new(Cursor::new(Vec::new()));
+    fn serialize<W: Write>(event: &T, out: W) -> Result<W, JsonError> {
+        let mut serializer = JsonSerializer::new(out);
         {
             let mut state = serializer.serialize_map(None)?;
 
@@ -158,6 +115,6 @@ impl<T: LogstashEvent> Serialize<T> for JsonLogstashEventSerializer {
 
             state.end()?;
         }
-        Ok(serializer.into_inner().into_inner())
+        Ok(serializer.into_inner())
     }
 }
