@@ -3,8 +3,7 @@ Goals
 * Fast
 * Precise parsing error messages with dumps etc.
 * Dead letter spool with message reprocessing tools
-* Programable
-* Input/filter/output library including syslog, Kafka, filed renaming, value mapping etc.
+* Programable * Input/filter/output library including syslog, Kafka, filed renaming, value mapping etc.
 
 Design
 ===
@@ -48,6 +47,11 @@ Ports are traits that are defined per each output. They role is to provide all i
 Events can be wrapped in specialized types that implement given Port for functionality like topic load balancing etc..
 
 Port trait is also used to define how payload is obtained. This needs to be implemented for every event but could have a blanket implememntation for Event that implement Serialize.
+
+Event Types
+---
+Event types are trais that provide common base infomration about event like timestamp, version, or extre fields.
+Serializers will require prticular event type trait implemented on messges they receive.
 
 Dead Letter Spool
 ---
