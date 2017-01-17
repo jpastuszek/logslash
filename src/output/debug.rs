@@ -2,6 +2,8 @@ use std::fmt::{self, Display, Debug};
 use std::error::Error;
 use std::borrow::Cow;
 use std::io::stdout;
+use std::io::Cursor;
+use std::io::Write;
 use futures::{Future, Stream, Sink};
 use futures::future::ok;
 use futures::sync::mpsc::{channel, Sender, Receiver};
@@ -12,9 +14,11 @@ use serialize::Serialize;
 use PipeError;
 
 pub trait DebugPort {
+    type SerializeError: Error;
     fn id(&self) -> Cow<str>;
     fn timestamp(&self) -> DateTime<UTC>;
     fn source(&self) -> Cow<str>;
+    fn serialize<W: Write>(&self, out: W) -> Result<W, Self::SerializeError>;
 }
 
 #[derive(Debug)]
@@ -45,14 +49,18 @@ pub fn print_event<S, T, IE, SE>(handle: Handle, serializer: S) -> Box<Sink<Sink
     //let stdout = io::stdout();
     //let mut handle = stdout.lock();
 
+    //TODO: no need for Cursor here; just write body directly to stdout
     let pipe = receiver
-        .map(move |event| match serializer.serialize(&event) {
-            Ok(mut body) => {
-                let header = format!("{} {} [{}] -- ",  event.id().as_ref(), event.source().as_ref(), event.timestamp());
-                body.push(b"\n"[0]);
-                Ok((header, body))
-            },
-            Err(error) => Err(DebugOuputError::Serialization(error))
+        .map(move |event| {
+            match event.serialize(Cursor::new(Vec::new())) {
+                Ok(out) => {
+                    let header = format!("{} {} [{}] -- ",  event.id().as_ref(), event.source().as_ref(), event.timestamp());
+                    let mut body = out.into_inner();
+                    body.push(b'\n');
+                    Ok((header, body))
+                }
+                Err(error) => Err(DebugOuputError::Serialization(error))
+            }
         })
         //TODO: provide error stream
         .filter_map(|ser_result| match ser_result {

@@ -81,6 +81,7 @@ impl Facility {
 #[derive(Copy, Clone, PartialEq)]
 #[repr(u8)]
 #[allow(dead_code)]
+//#[derive(Debug, Serialize, Deserialize)]
 #[derive(Debug)]
 pub enum Severity {
     Emergency = 0,

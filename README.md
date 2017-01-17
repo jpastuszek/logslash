@@ -16,7 +16,17 @@ Design
 
 Input
 ---
-Takes data from somewhere (e.g. TCP Stream) and produces Stream of concrete envet types depending on the input.
+Takes data from somewhere (e.g. TCP Stream) and produces Stream of concrete envet types depending on the input and codec used.
+
+Codec
+---
+Implements Tokio Codec trait and is used to process input stream into concreate event objects.
+
+Events
+---
+Events are actuall types that are produced by Codec from Input.
+They need to implement Serialize and Deserialize to be able to be stored in Dead Letter Spool.
+They need to get custom implementations of Port traits to be able to be sent to given Outputs. This implementations will be responsible for any transformations that need to happen.
 
 Serializer
 ---
@@ -37,17 +47,7 @@ Ports are traits that are defined per each output. They role is to provide all i
 
 Events can be wrapped in specialized types that implement given Port for functionality like topic load balancing etc..
 
-Event Types
----
-Event types are trais that provide common base infomration about event liek timestamp, version, or extre fields.
-Outputs will require prticular event type trait implemented on messges they receive.
-
-Logslash Events
----
-Serialized with SerDe to all it's supported formats.
-Every Input type implements Event trait and each Port is implemented for it.
-Message and custom fields can be parsed with function that will take value and return iterator of extra fileds.
-Fileds can be renamed before serialization happens.
+Port trait is also used to define how payload is obtained. This needs to be implemented for every event but could have a blanket implememntation for Event that implement Serialize.
 
 Dead Letter Spool
 ---

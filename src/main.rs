@@ -8,9 +8,11 @@ use logslash::input::syslog::{SyslogEvent, tcp_syslog_input};
 use logslash::output::debug::{DebugPort, print_event};
 //use logslash::serialize::JsonLogstashEventSerializer;
 use logslash::serialize::JsonEventSerializer;
+use logslash::serialize::JsonError;
 
 use futures::{Future, Stream};
 use std::borrow::Cow;
+use std::io::Write;
 use chrono::{DateTime, UTC};
 
 //TODO:
@@ -46,6 +48,11 @@ impl DebugPort for SyslogDebugPortEvent {
     fn id(&self) -> Cow<str> { self.0.id() }
     fn timestamp(&self) -> DateTime<UTC> { self.0.timestamp() }
     fn source(&self) -> Cow<str> { self.0.source() }
+
+    type SerializeError = JsonError;
+    fn serialize<W: Write>(&self, out: W) -> Result<W, Self::SerializeError> {
+        JsonEventSerializer::write(self.as_event(), out)
+    }
 }
 
 fn main() {

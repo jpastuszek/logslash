@@ -10,6 +10,8 @@ extern crate chrono;
 extern crate maybe_string;
 extern crate uuid;
 extern crate serde;
+#[macro_use]
+extern crate serde_derive;
 extern crate serde_json;
 
 pub mod input;
