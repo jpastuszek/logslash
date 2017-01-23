@@ -2,6 +2,8 @@ use std::fmt::{self, Display, Debug};
 use std::error::Error;
 use std::borrow::Cow;
 use std::io::stdout;
+use std::io::Error as IoError;
+use std::io::ErrorKind;
 use std::io::Write;
 use futures::{Future, Stream, Sink};
 use futures::future::ok;
@@ -47,11 +49,16 @@ pub fn print_event<T, IE>(handle: Handle) -> Box<Sink<SinkItem=T, SinkError=Pipe
     //let stdout = io::stdout();
     //let mut handle = stdout.lock();
 
+    let (buf_sender, buf_receiver): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = channel(1);
+
+    let init_buf_sender = buf_sender.clone();
+
     let pipe = receiver
-        .map(|event| {
+        .zip(buf_receiver)
+        .map(|(event, mut buf)| {
             // Note: We need allocation per message here as it needs to be alive until it is all
             // written out
-            let mut buf = Vec::with_capacity(64);
+            //let mut buf = Vec::with_capacity(64);
 
             write!(buf, "{} {} [{}] -- ",  event.id().as_ref(), event.source().as_ref(), event.timestamp()).expect("header written to buf");
 
@@ -71,13 +78,25 @@ pub fn print_event<T, IE>(handle: Handle) -> Box<Sink<SinkItem=T, SinkError=Pipe
                 }
             }
         )
-        .and_then(move |body|
+        .and_then(move |body| {
+             let buf_sender = buf_sender.clone();
              write_all(stdout(), body)
-            .map(|(_stdout, _buf)| ())
+            .and_then(move |(_stdout, mut buf)| {
+                // clear the buffer and reuse
+                buf.clear();
+                buf_sender
+                    .send(buf)
+                    .map_err(|_| IoError::new(ErrorKind::BrokenPipe, "failed to send buf back for reuse"))
+            })
             .map_err(|err| println!("Failed to write debug ouptu: {}", err))
-        );
+        });
 
     handle.spawn(pipe.for_each(|_| Ok(())));
+
+    handle.spawn(init_buf_sender
+                 .send(Vec::with_capacity(64))
+                 .map_err(|_| panic!("can't send initial buf"))
+                 .map(|_| ()));
 
     Box::new(sender.with(|message| {
         ok::<T, PipeError<IE, ()>>(message)
