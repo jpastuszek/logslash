@@ -26,6 +26,7 @@ use chrono::{DateTime, UTC};
 // * benches
 // * use CPU thread pools for processing of inputs and outputs
 // * dead letters and parsing error logging
+// * Kafka output
 
 #[derive(Debug)]
 struct SyslogDebugPortEvent(SyslogEvent);
