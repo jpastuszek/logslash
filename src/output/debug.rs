@@ -2,8 +2,6 @@ use std::fmt::{self, Display, Debug};
 use std::error::Error;
 use std::borrow::Cow;
 use std::io::stdout;
-use std::io::Error as IoError;
-use std::io::ErrorKind;
 use std::io::Write;
 use futures::{Future, Stream, Sink};
 use futures::future::ok;
@@ -45,21 +43,18 @@ impl<SE: Debug + Display> Error for DebugOuputError<SE> {
 pub fn print_event<T, IE>(handle: Handle) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Debug + 'static, IE: 'static {
     let (sender, receiver): (Sender<T>, Receiver<T>) = channel(100);
 
-    // TOOD: how do I capture state for whole future
-    //let stdout = io::stdout();
-    //let mut handle = stdout.lock();
-
+    // This channel will receive the buffer used to collect the message bytes after it was written
+    // out so it can be reused for the next event
     let (buf_sender, buf_receiver): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = channel(1);
 
+    // We need to send the inital buffer here
     let init_buf_sender = buf_sender.clone();
 
     let pipe = receiver
+        // rendezvous with the buffer
         .zip(buf_receiver)
+        // populate the buffer with message
         .map(|(event, mut buf)| {
-            // Note: We need allocation per message here as it needs to be alive until it is all
-            // written out
-            //let mut buf = Vec::with_capacity(64);
-
             write!(buf, "{} {} [{}] -- ",  event.id().as_ref(), event.source().as_ref(), event.timestamp()).expect("header written to buf");
 
             event.write_payload(buf)
@@ -69,6 +64,7 @@ pub fn print_event<T, IE>(handle: Handle) -> Box<Sink<SinkItem=T, SinkError=Pipe
                     buf
                 })
         })
+        // if something when wrong log and drop the message
         .filter_map(|ser_result|
             match ser_result {
                 Ok(ok) => Some(ok),
@@ -78,24 +74,28 @@ pub fn print_event<T, IE>(handle: Handle) -> Box<Sink<SinkItem=T, SinkError=Pipe
                 }
             }
         )
-        .and_then(move |body| {
-             let buf_sender = buf_sender.clone();
-             write_all(stdout(), body)
-            .and_then(move |(_stdout, mut buf)| {
-                // clear the buffer and reuse
-                buf.clear();
-                buf_sender
-                    .send(buf)
-                    .map_err(|_| IoError::new(ErrorKind::BrokenPipe, "failed to send buf back for reuse"))
-            })
-            .map_err(|err| println!("Failed to write debug ouptu: {}", err))
+        // write message to stdout and send back the buffer for reuse
+        .and_then(|body|
+             write_all(stdout(), body).map_err(|err| println!("Failed to print event to stdout: {}", err))
+         )
+        // cleanup
+        .and_then(move |(stdout, mut buf)| {
+            // unlock stdout
+            drop(stdout);
+
+            // clear the buffer and reuse
+            buf.clear();
+            buf_sender.clone()
+                .send(buf)
+                .map_err(|_| panic!("Failed to send buffer back for reuse"))
         });
 
     handle.spawn(pipe.for_each(|_| Ok(())));
 
+    // Send the inital buffer
     handle.spawn(init_buf_sender
                  .send(Vec::with_capacity(64))
-                 .map_err(|_| panic!("can't send initial buf"))
+                 .map_err(|_| panic!("can't send initial buffer"))
                  .map(|_| ()));
 
     Box::new(sender.with(|message| {
