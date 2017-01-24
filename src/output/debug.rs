@@ -44,11 +44,19 @@ impl<SE: Debug + Display> Error for DebugOuputError<SE> {
 }
 
 pub fn print_event<T, IE>(handle: Handle) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Debug + 'static, IE: 'static {
+    write_event(handle, stdout())
+}
+
+pub fn write_event<T, W, IE>(handle: Handle, out: W) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Debug + 'static, W: 'static, IE: 'static, W: Write {
     let (sender, receiver): (Sender<T>, Receiver<T>) = channel(100);
 
     let buf_cell = Rc::new(RefCell::new(Some(Vec::with_capacity(64))));
     let buf_cell_taker = buf_cell.clone();
     let buf_cell_putter = buf_cell.clone();
+
+    let out_cell = Rc::new(RefCell::new(Some(out)));
+    let out_cell_taker = out_cell.clone();
+    let out_cell_putter = out_cell.clone();
 
     let pipe = receiver
         // populate the buffer with message
@@ -74,13 +82,19 @@ pub fn print_event<T, IE>(handle: Handle) -> Box<Sink<SinkItem=T, SinkError=Pipe
             }
         )
         // write message to stdout and send back the buffer for reuse
-        .and_then(|body|
-             write_all(stdout(), body).map_err(|err| println!("Failed to print event to stdout: {}", err))
-        )
-        // clean the buffer and put it back for reuse
-        .map(move |(_stdout, mut buf)| {
+        .and_then(move |body| {
+            let out = out_cell_taker.borrow_mut().take().expect("taken");
+            write_all(out, body).map_err(|err| println!("Failed to print event to stdout: {}", err))
+        })
+        // cleanup and back for reuse
+        .map(move |(out, mut buf)| {
+            // give out back
+            replace(&mut *(out_cell_putter.borrow_mut()), Some(out));
+
+            // clear buffer and give it back
             buf.clear();
             replace(&mut *(buf_cell_putter.borrow_mut()), Some(buf));
+
             ()
         })
         .for_each(|_| Ok(()));
