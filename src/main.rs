@@ -5,7 +5,7 @@ extern crate chrono;
 use logslash::event_loop;
 use logslash::event::Event;
 use logslash::input::syslog::{SyslogEvent, tcp_syslog_input};
-use logslash::output::debug::{DebugPort, print_event};
+use logslash::output::debug::{DebugPort, debug_print};
 use logslash::serialize::Serializer;
 use logslash::serialize::JsonEventSerializer;
 //use logslash::serialize::JsonLogstashEventSerializer;
@@ -57,7 +57,7 @@ fn main() {
     let syslog = tcp_syslog_input(handle.clone(), &"127.0.0.1:5514".parse().unwrap());
     // syslog.rename() - need a future stream - Receiver is a Stream
 
-    let print = print_event(handle);
+    let print = debug_print(handle);
 
     //TODO: input and ouptut need to provide some printable error when they fail
     let pipe = syslog.map(SyslogDebugPortEvent).forward(print)
