@@ -7,8 +7,8 @@ use logslash::event::Event;
 use logslash::input::syslog::{SyslogEvent, tcp_syslog_input};
 use logslash::output::debug::{DebugPort, debug_print};
 use logslash::serialize::Serializer;
-use logslash::serialize::JsonEventSerializer;
-//use logslash::serialize::JsonLogstashEventSerializer;
+//use logslash::serialize::JsonEventSerializer;
+use logslash::serialize::JsonLogstashEventSerializer;
 
 use futures::{Future, Stream};
 use std::borrow::Cow;
@@ -32,22 +32,14 @@ use chrono::{DateTime, UTC};
 struct SyslogDebugPortEvent(SyslogEvent);
 
 impl DebugPort for SyslogDebugPortEvent {
+    type Payload = SyslogEvent;
+
     fn id(&self) -> Cow<str> { self.0.id() }
     fn timestamp(&self) -> DateTime<UTC> { self.0.timestamp() }
     fn source(&self) -> Cow<str> { self.0.source() }
-
-    type SerializeError = <JsonEventSerializer as Serializer<SyslogEvent>>::Error;
-    fn write_payload<W: Write>(&self, out: W) -> Result<W, Self::SerializeError> {
-        JsonEventSerializer::serialize(&self.0, out)
+    fn write_payload<W: Write, S: Serializer<Self::Payload>>(&self, out: W, serializer: &S) -> Result<W, S::Error> {
+        serializer.serialize(&self.0, out)
     }
-
-    /*
-    type SerializeError = <JsonLogstashEventSerializer as Serializer<SyslogEvent>>::Error;
-    fn write_payload<W: Write>(&self, out: W) -> Result<W, Self::SerializeError> {
-        //JsonEventSerializer::serialize(&self.0, out)
-        JsonLogstashEventSerializer::serialize(&self.0, out)
-    }
-    */
 }
 
 fn main() {
@@ -57,7 +49,7 @@ fn main() {
     let syslog = tcp_syslog_input(handle.clone(), &"127.0.0.1:5514".parse().unwrap());
     // syslog.rename() - need a future stream - Receiver is a Stream
 
-    let print = debug_print(handle);
+    let print = debug_print(handle, JsonLogstashEventSerializer::default());
 
     //TODO: input and ouptut need to provide some printable error when they fail
     let pipe = syslog.map(SyslogDebugPortEvent).forward(print)

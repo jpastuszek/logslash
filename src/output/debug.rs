@@ -8,13 +8,15 @@ use tokio_core::reactor::Handle;
 use chrono::{DateTime, UTC};
 use PipeError;
 use output::write::write;
+use serialize::Serializer;
 
 pub trait DebugPort {
-    type SerializeError: Error;
+    type Payload;
+
     fn id(&self) -> Cow<str>;
     fn timestamp(&self) -> DateTime<UTC>;
     fn source(&self) -> Cow<str>;
-    fn write_payload<W: Write>(&self, out: W) -> Result<W, Self::SerializeError>;
+    fn write_payload<W: Write, S: Serializer<Self::Payload>>(&self, out: W, serializer: &S) -> Result<W, S::Error>;
 }
 
 #[derive(Debug)]
@@ -38,11 +40,11 @@ impl<SE: Debug + Display> Error for DebugOuputError<SE> {
     }
 }
 
-pub fn debug_print<T, IE>(handle: Handle) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Debug + 'static, IE: 'static {
-    write(handle, stdout(), |event: &T, buf: &mut Vec<u8>| {
+pub fn debug_print<T, S, IE>(handle: Handle, serializer: S) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Debug + 'static, S: Serializer<T::Payload> + 'static, IE: 'static {
+    write(handle, stdout(), move |event: &T, buf: &mut Vec<u8>| {
         write!(buf, "{} {} [{}] -- ",  event.id().as_ref(), event.source().as_ref(), event.timestamp()).expect("header written to buf");
 
-        event.write_payload(buf)
+        event.write_payload(buf, &serializer)
             .map_err(|error| DebugOuputError::Serialization(error))
             .map(|mut buf| buf.push(b'\n'))
             .map(|_| ())

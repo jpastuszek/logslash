@@ -1,17 +1,15 @@
+use std::io::Write;
+use std::cell::RefCell;
 use std::error::Error;
-
-// By default we can serialize any Event to JSON with serde
-use event::{Event, LogstashEvent, Payload, MetaValue};
 use serde::ser::{Serialize, SerializeMap};
 use serde::Serializer as SerdeSerializer;
 use serde_json::error::Error as JsonError;
 use serde_json::ser::Serializer as JsonSerializer;
-use std::io::Write;
-use std::cell::RefCell;
+use event::{Event, LogstashEvent, Payload, MetaValue};
 
 pub trait Serializer<T> {
     type Error: Error;
-    fn serialize<W: Write>(event: &T, out: W) -> Result<W, Self::Error>;
+    fn serialize<W: Write>(&self, event: &T, out: W) -> Result<W, Self::Error>;
 }
 
 // Note:
@@ -40,29 +38,10 @@ impl<'i> Serialize for MetaValueSerde<'i> {
 #[derive(Default)]
 pub struct JsonEventSerializer;
 
-/* impossible due to lack of access to serializer when buidling a map
-fn serialize_meta_value_iter(iter: Box<Iterator<Item=(&'i str, MetaValue<'i>)> + 'i>, serializer: &'a mut S) -> Result<(), <&'a mut S as Serializer>::Error> where &'a mut S: Serializer {
-    let mut map = serializer.serialize_map(None)?;
-
-    for (key, value) in iter {
-        map.serialize_key(key)?;
-        match value {
-            MetaValue::String(string) => map.serialize_value(string),
-            MetaValue::U64(num) => map.serialize_value(num),
-            MetaValue::Object(iter) => {
-                serialize_meta_value_iter(iter, ?serializer?)?
-            }
-        }
-    }
-
-    map.end()
-}
-*/
-
 impl<T: Event> Serializer<T> for JsonEventSerializer {
     type Error = JsonError;
 
-    fn serialize<W: Write>(event: &T, out: W) -> Result<W, JsonError> {
+    fn serialize<W: Write>(&self, event: &T, out: W) -> Result<W, JsonError> {
         let mut serializer = JsonSerializer::new(out);
         {
             let mut map = serializer.serialize_map(None)?;
@@ -105,7 +84,7 @@ pub struct JsonLogstashEventSerializer;
 impl<T: LogstashEvent> Serializer<T> for JsonLogstashEventSerializer {
     type Error = JsonError;
 
-    fn serialize<W: Write>(event: &T, out: W) -> Result<W, JsonError> {
+    fn serialize<W: Write>(&self, event: &T, out: W) -> Result<W, JsonError> {
         let mut serializer = JsonSerializer::new(out);
         {
             let mut map = serializer.serialize_map(None)?;
