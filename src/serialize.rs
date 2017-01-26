@@ -2,37 +2,57 @@ use std::error::Error;
 
 // By default we can serialize any Event to JSON with serde
 use event::{Event, LogstashEvent, Payload, MetaValue};
-use serde::ser::SerializeMap;
+use serde::ser::{Serialize, SerializeMap};
 use serde::Serializer as SerdeSerializer;
 use serde_json::error::Error as JsonError;
 use serde_json::ser::Serializer as JsonSerializer;
 use std::io::Write;
+use std::cell::RefCell;
 
 pub trait Serializer<T> {
     type Error: Error;
     fn serialize<W: Write>(event: &T, out: W) -> Result<W, Self::Error>;
 }
 
+// impossible due to need to mutate self (iterator)
+struct MetaValueSerde<'i>(RefCell<MetaValue<'i>>);
+
+impl<'i> Serialize for MetaValueSerde<'i> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: SerdeSerializer {
+        match *self.0.borrow_mut() {
+            MetaValue::String(string) => serializer.serialize_str(string),
+            MetaValue::U64(num) => serializer.serialize_u64(num),
+            MetaValue::Object(ref mut iter) => {
+                let mut map = serializer.serialize_map(None)?;
+                for (key, value) in iter {
+                    map.serialize_key(key)?;
+                    map.serialize_value(MetaValueSerde(RefCell::new(value)))?;
+                }
+                map.end()
+            }
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct JsonEventSerializer;
 
-/*
-fn serialize_map_meta_value<'a, S>(serializer: &'a mut S, state: &mut <&'a mut S as Serializer>::SerializeMap, meta_value: MetaValue) -> Result<(), <&'a mut S as Serializer>::Error> where &'a mut S: Serializer {
-    match meta_value {
-        MetaValue::String(v) => state.serialize_value(v)?,
-        MetaValue::U64(v) => state.serialize_value(v)?,
-        MetaValue::Object(iter) => {
-            let mut obj = serializer.serialize_map(None)?;
+/* impossible due to lack of access to serializer when buidling a map
+fn serialize_meta_value_iter(iter: Box<Iterator<Item=(&'i str, MetaValue<'i>)> + 'i>, serializer: &'a mut S) -> Result<(), <&'a mut S as Serializer>::Error> where &'a mut S: Serializer {
+    let mut map = serializer.serialize_map(None)?;
 
-            for (key, value) in iter {
-                obj.serialize_key(key)?;
-                serialize_map_meta_value(serializer, &mut obj, value)?;
+    for (key, value) in iter {
+        map.serialize_key(key)?;
+        match value {
+            MetaValue::String(string) => map.serialize_value(string),
+            MetaValue::U64(num) => map.serialize_value(num),
+            MetaValue::Object(iter) => {
+                serialize_meta_value_iter(iter, ?serializer?)?
             }
-
-            obj.end()?;
         }
     }
-    Ok(())
+
+    map.end()
 }
 */
 
@@ -42,38 +62,36 @@ impl<T: Event> Serializer<T> for JsonEventSerializer {
     fn serialize<W: Write>(event: &T, out: W) -> Result<W, JsonError> {
         let mut serializer = JsonSerializer::new(out);
         {
-            let mut state = serializer.serialize_map(None)?;
+            let mut map = serializer.serialize_map(None)?;
 
-            state.serialize_key("id")?;
-            state.serialize_value(event.id())?;
+            map.serialize_key("id")?;
+            map.serialize_value(event.id())?;
 
-            state.serialize_key("source")?;
-            state.serialize_value(event.source())?;
+            map.serialize_key("source")?;
+            map.serialize_value(event.source())?;
 
-            state.serialize_key("timestamp")?;
-            state.serialize_value(event.timestamp().to_rfc3339())?;
+            map.serialize_key("timestamp")?;
+            map.serialize_value(event.timestamp().to_rfc3339())?;
 
             if let Some(payload) = event.payload() {
                 match payload {
                     Payload::String(s) => {
-                        state.serialize_key("message")?;
-                        state.serialize_value(s)?;
+                        map.serialize_key("message")?;
+                        map.serialize_value(s)?;
                     }
                     Payload::Data(s) => {
-                        state.serialize_key("data")?;
-                        state.serialize_value(s.as_ref().as_bytes())?;
+                        map.serialize_key("data")?;
+                        map.serialize_value(s.as_ref().as_bytes())?;
                     }
                 }
             }
 
-            /*
             for (key, value) in event.meta() {
-                state.serialize_key(key)?;
-                serialize_map_meta_value(&mut serializer, &mut state, value)?;
+                map.serialize_key(key)?;
+                map.serialize_value(MetaValueSerde(RefCell::new(value)))?;
             }
-            */
 
-            state.end()?;
+            map.end()?;
         }
         Ok(serializer.into_inner())
     }
@@ -88,32 +106,32 @@ impl<T: LogstashEvent> Serializer<T> for JsonLogstashEventSerializer {
     fn serialize<W: Write>(event: &T, out: W) -> Result<W, JsonError> {
         let mut serializer = JsonSerializer::new(out);
         {
-            let mut state = serializer.serialize_map(None)?;
+            let mut map = serializer.serialize_map(None)?;
 
-            state.serialize_key("@timestamp")?;
-            state.serialize_value(event.timestamp().to_rfc3339())?;
+            map.serialize_key("@timestamp")?;
+            map.serialize_value(event.timestamp().to_rfc3339())?;
 
-            state.serialize_key("@version")?;
-            state.serialize_value(event.version())?;
+            map.serialize_key("@version")?;
+            map.serialize_value(event.version())?;
 
             if let Some(message) = event.message() {
-                state.serialize_key("message")?;
-                state.serialize_value(message)?;
+                map.serialize_key("message")?;
+                map.serialize_value(message)?;
             }
 
-            state.serialize_key("type")?;
-            state.serialize_value(event.event_type())?;
+            map.serialize_key("type")?;
+            map.serialize_value(event.event_type())?;
 
-            state.serialize_key("tags")?;
-            state.serialize_value(event.tags())?;
+            map.serialize_key("tags")?;
+            map.serialize_value(event.tags())?;
 
-            state.serialize_key("@processed")?;
-            state.serialize_value(event.processed().to_rfc3339())?;
+            map.serialize_key("@processed")?;
+            map.serialize_value(event.processed().to_rfc3339())?;
 
-            state.serialize_key("@id")?;
-            state.serialize_value(event.id())?;
+            map.serialize_key("@id")?;
+            map.serialize_value(event.id())?;
 
-            state.end()?;
+            map.end()?;
         }
         Ok(serializer.into_inner())
     }
