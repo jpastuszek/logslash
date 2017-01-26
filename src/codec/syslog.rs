@@ -1,10 +1,8 @@
-use std::collections::HashMap;
 use std::mem;
 use std::borrow::Cow;
 use std::iter;
 use std::slice;
 use std::iter::once;
-use std::collections::hash_map;
 
 use nom::{ErrorKind, rest};
 use maybe_string::{MaybeStr, MaybeString};
@@ -22,8 +20,7 @@ use event::{Payload, MetaValue, Event, LogstashEvent};
 #[derive(Debug, Clone)]
 pub struct StructuredElement {
     pub id: String,
-    //TODO: use Vec<(String, String)> instead - no need for random access
-    pub params: HashMap<String, String>
+    pub params: Vec<(String, String)>
 }
 
 #[derive(Debug, Clone, Default)]
@@ -216,13 +213,12 @@ impl<'i> Iterator for FieldIterator<'i> {
 }
 
 struct StructuredElementsIterator<'i> {
-    //inner: iter::FlatMap<slice::Iter<'i, StructuredElement>, hash_map::Iter<'i, String, String>, fn(&'i StructuredElement) -> hash_map::Iter<'i, String, String>>
-    inner: iter::Map<slice::Iter<'i, StructuredElement>, fn(&'i StructuredElement) -> (&'i str, hash_map::Iter<'i, String, String>)>
+    inner: iter::Map<slice::Iter<'i, StructuredElement>, fn(&'i StructuredElement) -> (&'i str, slice::Iter<'i, (String, String)>)>
 }
 
 impl<'i> StructuredElementsIterator<'i> {
     fn new(structured_elements: &'i[StructuredElement]) -> StructuredElementsIterator<'i> {
-        fn params<'i>(se: &'i StructuredElement) -> (&'i str, hash_map::Iter<'i, String, String>) {
+        fn params<'i>(se: &'i StructuredElement) -> (&'i str, slice::Iter<'i, (String, String)>) {
             (se.id.as_str(), se.params.iter())
         }
 
@@ -237,7 +233,7 @@ impl<'i> Iterator for StructuredElementsIterator<'i> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next().map(|(id, params)|
-            (id, MetaValue::Object(Box::new(params.map(|(key, value)| (key.as_str(), MetaValue::String(value.as_str()))))))
+            (id, MetaValue::Object(Box::new(params.map(|&(ref key, ref value)| (key.as_str(), MetaValue::String(value.as_str()))))))
         )
     }
 }
@@ -313,60 +309,15 @@ impl LogstashEvent for SyslogEvent {
         }
     }
 
-    /*
-    fn fields<F: FieldSerializer>(&self, serializer: &mut F) -> Result<(), F::Error> {
-        serializer.serialize_field_str("logsource", &self.hostname)?;
-
-        let severity = match self.severity {
-            Severity::Emergency => "Emergency",
-            Severity::Alert => "Alert",
-            Severity::Critical => "Critical",
-            Severity::Error => "Error",
-            Severity::Warning => "Warning",
-            Severity::Notice => "Notice",
-            Severity::Informational => "Informational",
-            Severity::Debug => "Debug",
-        };
-        serializer.serialize_field_str("severity", severity)?;
-
-        let facility = match self.facility {
-            Facility::KernelMessages => "kernel",
-            Facility::UserLevelMessages => "user-level",
-            Facility::MailSystem => "mail",
-            Facility::SystemDaemons => "system",
-            Facility::SecurityMessages => "security/authorization",
-            Facility::Internal => "syslogd",
-            Facility::LinePrinterSubsystem => "line printer",
-            Facility::NetworkNewsSubsystem => "network news",
-            Facility::UucpSubsystem => "UUCP",
-            Facility::ClockDaemon => "clock",
-            Facility::AuthPrivMessage => "security/authorization",
-            Facility::FtpDaemon => "FTP",
-            Facility::NtpSubsystem => "NTP",
-            Facility::LogAudit => "log audit",
-            Facility::LogAlert => "log alert",
-            Facility::SchedulingDaemon => "clock",
-            Facility::Local0 => "local0",
-            Facility::Local1 => "local1",
-            Facility::Local2 => "local2",
-            Facility::Local3 => "local3",
-            Facility::Local4 => "local4",
-            Facility::Local5 => "local5",
-            Facility::Local6 => "local6",
-            Facility::Local7 => "local7",
-        };
-        serializer.serialize_field_str("facility", facility)?;
-
-        if let Some(ref program) = self.program {
-            serializer.serialize_field_str("program", &program)?;
-        }
-
-        if let Some(ref pid) = self.proc_id {
-            serializer.serialize_field_str("pid", &pid)?;
-        }
-        Ok(())
+    fn fields<'i>(&'i self) -> Box<Iterator<Item=(&'i str, MetaValue<'i>)> + 'i> {
+        Box::new(
+            FieldIterator::new(self)
+            .chain(
+                once(("structured_data", MetaValue::Object(Box::new(StructuredElementsIterator::new(self.structured_data
+                       .as_ref()
+                       .map(|sd| sd.elements.as_slice())
+                       .unwrap_or(&[]))))))))
     }
-    */
 }
 
 named!(priority<&[u8], u8>, return_error!(ErrorKind::Custom(1),

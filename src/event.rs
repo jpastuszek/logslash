@@ -63,5 +63,5 @@ pub trait LogstashEvent {
     fn tags(&self) -> Vec<&'static str>;
     fn processed(&self) -> DateTime<UTC>;
     fn id(&self) -> Cow<str>;
-    //fn fields<F: FieldSerializer>(&self, serializer: &mut F) -> Result<(), F::Error>;
+    fn fields<'i>(&'i self) -> Box<Iterator<Item=(&'i str, MetaValue<'i>)> + 'i>;
 }

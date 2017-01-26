@@ -96,8 +96,7 @@ impl<T: Event> Serializer<T> for JsonEventSerializer {
 
             map.end()?;
         }
-        Ok(serializer.into_inner())
-    }
+        Ok(serializer.into_inner()) }
 }
 
 #[derive(Default)]
@@ -133,6 +132,11 @@ impl<T: LogstashEvent> Serializer<T> for JsonLogstashEventSerializer {
 
             map.serialize_key("@id")?;
             map.serialize_value(event.id())?;
+
+            for (key, value) in event.fields() {
+                map.serialize_key(key)?;
+                map.serialize_value(MetaValueSerde(RefCell::new(value)))?;
+            }
 
             map.end()?;
         }
