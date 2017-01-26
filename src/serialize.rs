@@ -14,7 +14,10 @@ pub trait Serializer<T> {
     fn serialize<W: Write>(event: &T, out: W) -> Result<W, Self::Error>;
 }
 
-// impossible due to need to mutate self (iterator)
+// Note:
+// Need RefCell as this is using iterators inside that we need to mutate to iterate
+// This means that it can be serialized only once (need to call Event::meta() to get fresh iterator
+// every time it is serialized
 struct MetaValueSerde<'i>(RefCell<MetaValue<'i>>);
 
 impl<'i> Serialize for MetaValueSerde<'i> {

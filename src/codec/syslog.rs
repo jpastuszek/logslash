@@ -216,17 +216,18 @@ impl<'i> Iterator for FieldIterator<'i> {
 }
 
 struct StructuredElementsIterator<'i> {
-    inner: iter::FlatMap<slice::Iter<'i, StructuredElement>, hash_map::Iter<'i, String, String>, fn(&'i StructuredElement) -> hash_map::Iter<'i, String, String>>
+    //inner: iter::FlatMap<slice::Iter<'i, StructuredElement>, hash_map::Iter<'i, String, String>, fn(&'i StructuredElement) -> hash_map::Iter<'i, String, String>>
+    inner: iter::Map<slice::Iter<'i, StructuredElement>, fn(&'i StructuredElement) -> (&'i str, hash_map::Iter<'i, String, String>)>
 }
 
 impl<'i> StructuredElementsIterator<'i> {
     fn new(structured_elements: &'i[StructuredElement]) -> StructuredElementsIterator<'i> {
-        fn params<'i>(se: &'i StructuredElement) -> hash_map::Iter<'i, String, String> {
-            se.params.iter()
+        fn params<'i>(se: &'i StructuredElement) -> (&'i str, hash_map::Iter<'i, String, String>) {
+            (se.id.as_str(), se.params.iter())
         }
 
         StructuredElementsIterator {
-            inner: structured_elements.iter().flat_map(params)
+            inner: structured_elements.iter().map(params)
         }
     }
 }
@@ -234,9 +235,11 @@ impl<'i> StructuredElementsIterator<'i> {
 impl<'i> Iterator for StructuredElementsIterator<'i> {
     type Item = (&'i str, MetaValue<'i>);
 
-     fn next(&mut self) -> Option<Self::Item> {
-         self.inner.next().map(|(key, value)| (key.as_str(), MetaValue::String(value.as_str())))
-     }
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|(id, params)|
+            (id, MetaValue::Object(Box::new(params.map(|(key, value)| (key.as_str(), MetaValue::String(value.as_str()))))))
+        )
+    }
 }
 
 impl Event for SyslogEvent {
@@ -266,11 +269,12 @@ impl Event for SyslogEvent {
 
     fn meta<'i>(&'i self) -> Box<Iterator<Item=(&'i str, MetaValue<'i>)> + 'i> {
         Box::new(
-            once(("syslog", MetaValue::Object(Box::new(FieldIterator::new(self)))))
-            .chain(StructuredElementsIterator::new(self.structured_data
-                                                   .as_ref()
-                                                   .map(|sd| sd.elements.as_slice())
-                                                   .unwrap_or(&[]))))
+            FieldIterator::new(self)
+            .chain(
+                once(("structured_data", MetaValue::Object(Box::new(StructuredElementsIterator::new(self.structured_data
+                       .as_ref()
+                       .map(|sd| sd.elements.as_slice())
+                       .unwrap_or(&[]))))))))
     }
 
     //TODO: way to attach meta iterator chains e.g. process_meta(|m| m.filter(foo).map(bar))
