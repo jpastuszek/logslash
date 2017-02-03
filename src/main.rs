@@ -18,6 +18,7 @@ use chrono::{DateTime, UTC};
 //TODO:
 // * support for arbitary fileds in messages
 // * renames
+// * put events behind Rc to reduce copying?
 // * use structured logging
 // * proper nom errors with dumps etc
 // * reduce expect/unwrap for pipeline setup?

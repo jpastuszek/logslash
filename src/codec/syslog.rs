@@ -620,9 +620,9 @@ mod syslog_rfc5424_tests {
         let e = o.structured_data.as_ref().unwrap().elements.get(0).unwrap();
         assert_eq!(e.id, "exampleSDID@32473");
         assert_eq!(e.params.len(), 3);
-        assert_eq!(e.params["iut"], "3".to_owned());
-        assert_eq!(e.params["eventSource"], "Application".to_owned());
-        assert_eq!(e.params["eventID"], "1011".to_owned());
+        assert_eq!(e.params[0], ("iut".to_owned(), "3".to_owned()));
+        assert_eq!(e.params[1], ("eventSource".to_owned(), "Application".to_owned()));
+        assert_eq!(e.params[2], ("eventID".to_owned(), "1011".to_owned()));
 
         assert_eq!(o.message, Some(Message::String("foo\nbar".to_owned())));
     }
@@ -636,14 +636,14 @@ mod syslog_rfc5424_tests {
         let e = o.structured_data.as_ref().unwrap().elements.get(0).unwrap();
         assert_eq!(e.id, "exampleSDID@32473");
         assert_eq!(e.params.len(), 3);
-        assert_eq!(e.params["iut"], "3".to_owned());
-        assert_eq!(e.params["eventSource"], "Application".to_owned());
-        assert_eq!(e.params["eventID"], "1011".to_owned());
+        assert_eq!(e.params[0], ("iut".to_owned(), "3".to_owned()));
+        assert_eq!(e.params[1], ("eventSource".to_owned(), "Application".to_owned()));
+        assert_eq!(e.params[2], ("eventID".to_owned(), "1011".to_owned()));
 
         let e = o.structured_data.as_ref().unwrap().elements.get(1).unwrap();
         assert_eq!(e.id, "examplePriority@32473");
         assert_eq!(e.params.len(), 1);
-        assert_eq!(e.params["class"], "high".to_owned());
+        assert_eq!(e.params[0], ("class".to_owned(), "high".to_owned()));
 
         assert_eq!(o.message, Some(Message::String("foo\nbar".to_owned())));
     }
@@ -658,14 +658,14 @@ mod syslog_rfc5424_tests {
         let e = o.structured_data.as_ref().unwrap().elements.get(0).unwrap();
         assert_eq!(e.id, "exampleSDID@32473");
         assert_eq!(e.params.len(), 3);
-        assert_eq!(e.params["iut"], "3".to_owned());
-        assert_eq!(e.params["eventSource"], "Appli\\catio]n".to_owned());
-        assert_eq!(e.params["eventID"], "1011".to_owned());
+        assert_eq!(e.params[0], ("iut".to_owned(), "3".to_owned()));
+        assert_eq!(e.params[1], ("eventSource".to_owned(), "Appli\\catio]n".to_owned()));
+        assert_eq!(e.params[2], ("eventID".to_owned(), "1011".to_owned()));
 
         let e = o.structured_data.as_ref().unwrap().elements.get(1).unwrap();
         assert_eq!(e.id, "examplePriority@32473");
         assert_eq!(e.params.len(), 1);
-        assert_eq!(e.params["class"], "hi\"gh".to_owned());
+        assert_eq!(e.params[0], ("class".to_owned(), "hi\"gh".to_owned()));
 
         assert_eq!(o.message, Some(Message::String("foo\nbar".to_owned())));
     }
@@ -680,14 +680,14 @@ mod syslog_rfc5424_tests {
         let e = o.structured_data.as_ref().unwrap().elements.get(0).unwrap();
         assert_eq!(e.id, "exampleSDID@32473");
         assert_eq!(e.params.len(), 3);
-        assert_eq!(e.params["iut"], "3".to_owned());
-        assert_eq!(e.params["eventSource"], "Application".to_owned());
-        assert_eq!(e.params["eventID"], "1011".to_owned());
+        assert_eq!(e.params[0], ("iut".to_owned(), "3".to_owned()));
+        assert_eq!(e.params[1], ("eventSource".to_owned(), "Application".to_owned()));
+        assert_eq!(e.params[2], ("eventID".to_owned(), "1011".to_owned()));
 
         let e = o.structured_data.as_ref().unwrap().elements.get(1).unwrap();
         assert_eq!(e.id, "examplePriority@32473");
         assert_eq!(e.params.len(), 1);
-        assert_eq!(e.params["class"], "high".to_owned());
+        assert_eq!(e.params[0], ("class".to_owned(), "high".to_owned()));
 
         assert_eq!(o.message, None);
     }

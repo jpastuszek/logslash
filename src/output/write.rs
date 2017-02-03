@@ -10,6 +10,10 @@ use tokio_core::io::write_all;
 use tokio_core::reactor::Handle;
 use PipeError;
 
+// TODO: This is actually bloking! need to use dedicated thread for this! or limit it to EventedFd
+// EventedFd is not Read + Write but contains RawFd so we can wrap it all (Evented + Read + Write)
+// and then I can use PoolEvented::new to create IO
+
 pub fn write<T, W, IE, SE, F>(handle: Handle, out: W, serialize: F) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: 'static, W: 'static, IE: 'static, SE: Debug + Display + 'static, W: Write, F: Fn(&T, &mut Vec<u8>) -> Result<(), SE> + 'static {
     let (sender, receiver): (Sender<T>, Receiver<T>) = channel(100);
 
