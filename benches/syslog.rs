@@ -10,7 +10,12 @@ use tokio_vec_io::BufStream;
 use tokio_core::io::Io;
 use futures::Future;
 
+use logslash::event_loop;
 use logslash::codec::syslog::SyslogCodec;
+use logslash::output::write::write;
+use logslash::serialize::JsonLogstashEventSerializer;
+use logslash::serialize::Serializer;
+use logslash::PipeError;
 use futures::stream::Stream;
 
 static SYSLOG_RFC5424_NEWLINE_EXAMPLES: &'static str =
@@ -57,7 +62,31 @@ fn syslog_rfc5424_newline_no_meta_x10(bench: &mut Bencher) {
     })
 }
 
+fn syslog_rfc5424_newline_x10_to_logstash_json(bench: &mut Bencher) {
+    let mut buf = Vec::from(SYSLOG_RFC5424_NEWLINE_EXAMPLES);
+    let mut event_loop = event_loop();
+    let handle = event_loop.handle();
+
+    bench.iter(move || {
+        let input = BufStream::new(buf.as_mut_slice());
+
+        let output = BufStream::default();
+        let ser = JsonLogstashEventSerializer::default();
+
+        let write = write(handle.clone(), output, move |event, buf| {
+            ser.serialize(event, buf).map(|_| ())
+        });
+
+        let pipe = input
+            .framed(SyslogCodec::rfc5424_in_newline_frame())
+            .map_err(|e| PipeError::Input(e))
+            .forward(write);
+        event_loop.run(pipe).expect("Ok result");
+    })
+}
+
 benchmark_group!(benches,
                  syslog_rfc5424_newline_x10,
-                 syslog_rfc5424_newline_no_meta_x10);
+                 syslog_rfc5424_newline_no_meta_x10,
+                 syslog_rfc5424_newline_x10_to_logstash_json);
 benchmark_main!(benches);
