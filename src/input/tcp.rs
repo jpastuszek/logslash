@@ -16,7 +16,6 @@ use tokio_core::net::TcpListener;
 use tokio_core::reactor::Handle;
 
 use PipeError;
-use codec::IntoCodec;
 
 #[derive(Debug)]
 enum TcpInputError<T: Debug> {
@@ -59,10 +58,9 @@ impl<T: Debug> Error for TcpInputError<T> {
     }
 }
 
-pub fn tcp_input<C, IC, T, OE>(name: &'static str, handle: Handle, addr: &SocketAddr, codec: IC) -> Box<Stream<Item=T, Error=PipeError<(), OE>>> where C: Codec<In=T, Out=()> + Clone + 'static, IC: IntoCodec<Codec=C>, T: Debug + 'static {
+pub fn tcp_input<C, T, OE>(name: &'static str, handle: Handle, addr: &SocketAddr, codec: C) -> Box<Stream<Item=T, Error=PipeError<(), OE>>> where C: Codec<In=T, Out=()> + Clone + 'static, T: Debug + 'static {
     let (sender, receiver) = mpsc::channel(10);
     let listener_handle = handle.clone();
-    let codec = codec.into_codec();
 
     let listener = TcpListener::bind(addr, &handle).expect("bound TCP socket");
     println!("[{}] Listening for TCP connections on {}", name, addr);

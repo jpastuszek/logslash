@@ -11,7 +11,6 @@ use tokio_core::io::Io;
 use futures::Future;
 
 use logslash::codec::syslog::SyslogCodec;
-use logslash::codec::IntoCodec;
 use futures::stream::Stream;
 
 static SYSLOG_RFC5424_NEWLINE_EXAMPLES: &'static str =
@@ -44,7 +43,7 @@ fn syslog_rfc5424_newline_x10(bench: &mut Bencher) {
     let mut buf = Vec::from(SYSLOG_RFC5424_NEWLINE_EXAMPLES);
     bench.iter(|| {
         let input = BufStream::new(buf.as_mut_slice());
-        let output = input.framed(SyslogCodec::rfc5424_in_newline_frame().into_codec()).collect();
+        let output = input.framed(SyslogCodec::rfc5424_in_newline_frame()).collect();
         assert_eq!(output.wait().expect("Ok result").len(), 10);
     })
 }
@@ -53,7 +52,7 @@ fn syslog_rfc5424_newline_no_meta_x10(bench: &mut Bencher) {
     let mut buf = Vec::from(SYSLOG_RFC5424_NEWLINE_NO_META_EXAMPLES);
     bench.iter(|| {
         let input = BufStream::new(buf.as_mut_slice());
-        let output = input.framed(SyslogCodec::rfc5424_in_newline_frame().into_codec()).collect();
+        let output = input.framed(SyslogCodec::rfc5424_in_newline_frame()).collect();
         assert_eq!(output.wait().expect("Ok result").len(), 10);
     })
 }

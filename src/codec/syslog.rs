@@ -4,6 +4,9 @@ use std::iter;
 use std::slice;
 use std::iter::once;
 
+use tokio_core::io::Codec;
+use tokio_core::io::EasyBuf;
+use std::io::Result as IoResult;
 use nom::{ErrorKind, rest};
 use maybe_string::{MaybeStr, MaybeString};
 use chrono::{DateTime, UTC, FixedOffset};
@@ -11,7 +14,6 @@ use uuid::Uuid;
 
 use codec::parse;
 use codec::nom::NomCodec;
-use codec::IntoCodec;
 
 use event::{Payload, MetaValue, Event, LogstashEvent};
 
@@ -478,22 +480,24 @@ pub mod simple_errors {
            |m: SyslogEvent| m.decode_newlines()));
 }
 
-pub struct SyslogCodec {
-    nom: NomCodec<SyslogEvent>
-}
+#[derive(Clone)]
+pub struct SyslogCodec(NomCodec<SyslogEvent>);
 
 impl SyslogCodec {
     pub fn rfc5424_in_newline_frame() -> SyslogCodec {
-        SyslogCodec {
-            nom: NomCodec::new(simple_errors::syslog_rfc5424_in_newline_frame)
-        }
+        SyslogCodec(NomCodec::new(simple_errors::syslog_rfc5424_in_newline_frame))
     }
 }
 
-impl IntoCodec for SyslogCodec {
-    type Codec = NomCodec<SyslogEvent>;
-    fn into_codec(self) -> Self::Codec {
-        self.nom
+impl Codec for SyslogCodec {
+    type In = <NomCodec<SyslogEvent> as Codec>::In;
+    type Out = <NomCodec<SyslogEvent> as Codec>::Out;
+
+    fn decode(&mut self, buf: &mut EasyBuf) -> IoResult<Option<Self::In>> {
+        self.0.decode(buf)
+    }
+    fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> IoResult<()> {
+        self.0.encode(msg, buf)
     }
 }
 

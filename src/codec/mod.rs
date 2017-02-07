@@ -1,39 +1,6 @@
 pub mod nom;
 pub mod syslog;
 
-use tokio_core::io::Codec as TCodec;
-
-pub trait IntoCodec {
-    type Codec: TCodec;
-    fn into_codec(self) -> Self::Codec;
-}
-
-impl<T> IntoCodec for T where T: TCodec {
-    type Codec = T;
-    fn into_codec(self) -> Self::Codec { self }
-}
-
-/*
-use tokio_core::io::EasyBuf;
-use std::io::Result;
-pub trait AsMutCodec {
-    type Codec: TCodec;
-    fn as_mut_codec(&mut self) -> &mut Self::Codec;
-}
-
-impl<T> TCodec for T where T: AsMutCodec {
-    type In = <<T as AsMutCodec>::Codec as TCodec>::In;
-    type Out = <<T as AsMutCodec>::Codec as TCodec>::Out;
-
-    fn decode(&mut self, buf: &mut EasyBuf) -> Result<Option<Self::In>> {
-        self.as_mut_codec().decode(buf)
-    }
-    fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> Result<()> {
-        self.as_mut_codec().encode(msg, buf)
-    }
-}
-*/
-
 // Shared parsing primitives
 mod parse {
     use std::str::{from_utf8, Utf8Error};
