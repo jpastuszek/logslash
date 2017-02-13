@@ -83,12 +83,9 @@ pub fn write_raw_fd<T, O, IE, SE, F>(handle: Handle, out: O, serialize: F) -> Bo
     let out_handle = handle.clone();
     let out_fd = out.into_raw_fd();
 
-    println!("fd: {}", &out_fd);
-
     let pipe = receiver
         // populate the buffer with message
         .map(move |event| {
-            println!("boo");
             let mut buf = buf_cell_taker.borrow_mut().take().expect("taken");
             serialize(&event, &mut buf)
                 .map(|_| buf)
@@ -105,7 +102,6 @@ pub fn write_raw_fd<T, O, IE, SE, F>(handle: Handle, out: O, serialize: F) -> Bo
         )
         // write message to stdout and send back the buffer for reuse
         .and_then(move |body| {
-            println!("body: {:?}", body);
             let evented_out = RawFdEvented::new(out_fd).into_io(&out_handle).expect("RawFdEvented failed to convett into IO");
 
             write_all(evented_out, body).map_err(|err| println!("Failed to write event: {}", err))
@@ -115,9 +111,7 @@ pub fn write_raw_fd<T, O, IE, SE, F>(handle: Handle, out: O, serialize: F) -> Bo
             // clear buffer and give it back
             buf.clear();
             replace(&mut *(buf_cell_putter.borrow_mut()), Some(buf));
-
-            ()
-        })
+() })
         .for_each(|_| Ok(()));
 
     handle.spawn(pipe);

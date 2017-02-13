@@ -1,15 +1,13 @@
 use std::fmt::{self, Display, Debug};
 use std::error::Error;
 use std::borrow::Cow;
-use std::io::stdout;
 use std::io::Write;
 use std::fs::File;
 use futures::Sink;
 use tokio_core::reactor::Handle;
 use chrono::{DateTime, UTC};
 use PipeError;
-//use output::write::write_raw_fd;
-use output::write::write;
+use output::write::write_raw_fd;
 use serialize::Serializer;
 
 pub trait DebugPort {
@@ -41,7 +39,7 @@ impl<SE: Debug + Display> Error for DebugOuputError<SE> {
         }
     }
 }
-/*
+
 #[cfg(unix)]
 use std::os::unix::io::FromRawFd;
 
@@ -58,15 +56,4 @@ pub fn debug_print<T, S, IE>(handle: Handle, serializer: S) -> Box<Sink<SinkItem
                 .map(|_| ())
         })
     }
-}
-*/
-pub fn debug_print<T, S, IE>(handle: Handle, serializer: S) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Debug + 'static, S: Serializer<T::Payload> + 'static, IE: 'static {
-    write(handle, stdout(), move |event: &T, buf: &mut Vec<u8>| {
-        write!(buf, "{} {} [{}] -- ",  event.id().as_ref(), event.source().as_ref(), event.timestamp()).expect("header written to buf");
-
-        event.write_payload(buf, &serializer)
-            .map_err(|error| DebugOuputError::Serialization(error))
-            .map(|mut buf| buf.push(b'\n'))
-            .map(|_| ())
-    })
 }
