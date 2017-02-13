@@ -1,5 +1,6 @@
 extern crate futures;
 extern crate tokio_core;
+extern crate tokio_fd_io;
 #[macro_use]
 extern crate nom;
 #[macro_use]

@@ -3,15 +3,19 @@ authors = ["Jakub Pastuszek <jpastuszek@gmail.com>"]
 name = "logslash"
 version = "0.1.0"
 
+[[bench]]
+harness = false
+name = "syslog"
+
 [dependencies]
 assert_matches = "1.0.1"
 chrono = "0.2.25"
 error-chain = "0.7.1"
 futures = "0.1.6"
+mio = "0.6.1"
 serde = "0.9.0-rc1"
 serde_derive = "0.9.0-rc1"
 tokio-core = "0.1.1"
-tokio-vec-io = { path = "../tokio-vec-io" }
 
 [dependencies.maybe_string]
 git = "https://github.com/jpastuszek/maybe-string.git"
@@ -23,13 +27,15 @@ version = "2.0.0"
 [dependencies.serde_json]
 git = "https://github.com/serde-rs/json.git"
 
+[dependencies.tokio-vec-io]
+path = "../tokio-vec-io"
+
+[dependencies.tokio-fd-io]
+path = "../tokio-fd-io"
+
 [dependencies.uuid]
 features = ["serde", "v4"]
 version = "0.3.1"
 
 [dev-dependencies]
 bencher = "0.1.2"
-
-[[bench]]
-name = "syslog"
-harness = false
