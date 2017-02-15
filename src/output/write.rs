@@ -80,8 +80,12 @@ pub fn write_raw_fd<T, O, IE, SE, F>(handle: Handle, out: O, serialize: F) -> Bo
     let buf_cell_taker = buf_cell.clone();
     let buf_cell_putter = buf_cell.clone();
 
-    let out_handle = handle.clone();
-    let out_fd = out.into_raw_fd();
+    let evented_out = RawFdEvented::new(out.into_raw_fd()).into_io(&handle)
+        .expect("RawFdEvented failed to convet into IO");
+
+    let out_cell = Rc::new(RefCell::new(Some(evented_out)));
+    let out_cell_taker = out_cell.clone();
+    let out_cell_putter = out_cell.clone();
 
     let pipe = receiver
         // populate the buffer with message
@@ -102,12 +106,14 @@ pub fn write_raw_fd<T, O, IE, SE, F>(handle: Handle, out: O, serialize: F) -> Bo
         )
         // write message to stdout and send back the buffer for reuse
         .and_then(move |body| {
-            let evented_out = RawFdEvented::new(out_fd).into_io(&out_handle).expect("RawFdEvented failed to convett into IO");
-
-            write_all(evented_out, body).map_err(|err| println!("Failed to write event: {}", err))
+            let out = out_cell_taker.borrow_mut().take().expect("taken");
+            write_all(out, body).map_err(|err| println!("Failed to write event: {}", err))
         })
         // cleanup and back for reuse
-        .map(move |(_out, mut buf)| {
+        .map(move |(out, mut buf)| {
+            // give out back
+            replace(&mut *(out_cell_putter.borrow_mut()), Some(out));
+
             // clear buffer and give it back
             buf.clear();
             replace(&mut *(buf_cell_putter.borrow_mut()), Some(buf));
