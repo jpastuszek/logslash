@@ -7,7 +7,6 @@ use futures::Sink;
 use tokio_core::reactor::Handle;
 use chrono::{DateTime, UTC};
 use PipeError;
-use output::write::write_raw_fd;
 use serialize::Serializer;
 
 pub trait DebugPort {
@@ -41,19 +40,22 @@ impl<SE: Debug + Display> Error for DebugOuputError<SE> {
 }
 
 #[cfg(unix)]
-use std::os::unix::io::FromRawFd;
+pub mod unix {
+    use super::*;
+    use std::os::unix::io::FromRawFd;
+    use output::write::unix::write_evented;
 
-#[cfg(unix)]
-pub fn debug_print<T, S, IE>(handle: Handle, serializer: S) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Debug + 'static, S: Serializer<T::Payload> + 'static, IE: 'static {
-    unsafe {
-        let stdout = File::from_raw_fd(1);
-        write_raw_fd(handle, stdout, move |event: &T, buf: &mut Vec<u8>| {
-            write!(buf, "{} {} [{}] -- ",  event.id().as_ref(), event.source().as_ref(), event.timestamp()).expect("header written to buf");
+    pub fn debug_print<T, S, IE>(handle: Handle, serializer: S) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Debug + 'static, S: Serializer<T::Payload> + 'static, IE: 'static {
+        unsafe {
+            let stdout = File::from_raw_fd(1);
+            write_evented(handle, stdout, move |event: &T, buf: &mut Vec<u8>| {
+                write!(buf, "{} {} [{}] -- ",  event.id().as_ref(), event.source().as_ref(), event.timestamp()).expect("header written to buf");
 
-            event.write_payload(buf, &serializer)
-                .map_err(|error| DebugOuputError::Serialization(error))
-                .map(|mut buf| buf.push(b'\n'))
-                .map(|_| ())
-        })
+                event.write_payload(buf, &serializer)
+                    .map_err(|error| DebugOuputError::Serialization(error))
+                    .map(|mut buf| buf.push(b'\n'))
+                    .map(|_| ())
+            })
+        }
     }
 }
