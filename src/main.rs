@@ -6,9 +6,8 @@ use logslash::event_loop;
 use logslash::event::Event;
 use logslash::input::syslog::{SyslogEvent, tcp_syslog_input};
 use logslash::output::debug::DebugPort;
-use logslash::output::debug::unix::*;
-use logslash::serialize::Serializer;
-//use logslash::serialize::JsonEventSerializer;
+use logslash::output::debug::*;
+use logslash::serialize::Serializer; use logslash::serialize::JsonEventSerializer;
 use logslash::serialize::JsonLogstashEventSerializer;
 
 use futures::{Future, Stream};
