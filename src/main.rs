@@ -6,7 +6,7 @@ use logslash::event_loop;
 use logslash::event::Event;
 use logslash::input::syslog::{SyslogEvent, tcp_syslog_input};
 use logslash::output::debug::DebugPort;
-use logslash::output::debug::unix::debug_print;
+use logslash::output::debug::unix::*;
 use logslash::serialize::Serializer;
 //use logslash::serialize::JsonEventSerializer;
 use logslash::serialize::JsonLogstashEventSerializer;
@@ -14,6 +14,7 @@ use logslash::serialize::JsonLogstashEventSerializer;
 use futures::{Future, Stream};
 use std::borrow::Cow;
 use std::io::Write;
+use std::fs::File;
 use chrono::{DateTime, UTC};
 
 //TODO:
@@ -29,6 +30,7 @@ use chrono::{DateTime, UTC};
 // * use CPU thread pools for processing of inputs and outputs
 // * dead letters and parsing error logging
 // * Kafka output
+// * prelude with common input/output/codecs
 
 #[derive(Debug)]
 struct SyslogDebugPortEvent(SyslogEvent);
@@ -51,7 +53,8 @@ fn main() {
     let syslog = tcp_syslog_input(handle.clone(), &"127.0.0.1:5514".parse().unwrap());
     // syslog.rename() - need a future stream - Receiver is a Stream
 
-    let print = debug_print(handle, JsonLogstashEventSerializer::default());
+    //let print = debug_print(handle, JsonLogstashEventSerializer::default());
+    let print = debug_to_file(handle.clone(), File::create("/tmp/out").expect("falied to open out file"), JsonLogstashEventSerializer::default());
 
     //TODO: input and ouptut need to provide some printable error when they fail
     let pipe = syslog.map(SyslogDebugPortEvent).forward(print)

@@ -45,17 +45,21 @@ pub mod unix {
     use std::os::unix::io::FromRawFd;
     use output::write::unix::write_evented;
 
+    pub fn debug_to_file<T, S, IE>(handle: Handle, file: File, serializer: S) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Debug + 'static, S: Serializer<T::Payload> + 'static, IE: 'static {
+        write_evented(handle, file, move |event: &T, buf: &mut Vec<u8>| {
+            write!(buf, "{} {} [{}] -- ",  event.id().as_ref(), event.source().as_ref(), event.timestamp()).expect("header written to buf");
+
+            event.write_payload(buf, &serializer)
+                .map_err(|error| DebugOuputError::Serialization(error))
+                .map(|mut buf| buf.push(b'\n'))
+                .map(|_| ())
+        })
+    }
+
     pub fn debug_print<T, S, IE>(handle: Handle, serializer: S) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Debug + 'static, S: Serializer<T::Payload> + 'static, IE: 'static {
         unsafe {
             let stdout = File::from_raw_fd(1);
-            write_evented(handle, stdout, move |event: &T, buf: &mut Vec<u8>| {
-                write!(buf, "{} {} [{}] -- ",  event.id().as_ref(), event.source().as_ref(), event.timestamp()).expect("header written to buf");
-
-                event.write_payload(buf, &serializer)
-                    .map_err(|error| DebugOuputError::Serialization(error))
-                    .map(|mut buf| buf.push(b'\n'))
-                    .map(|_| ())
-            })
+            debug_to_file(handle, stdout, serializer)
         }
     }
 }
