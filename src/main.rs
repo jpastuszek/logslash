@@ -7,7 +7,8 @@ use logslash::event::Event;
 use logslash::input::syslog::{SyslogEvent, tcp_syslog_input};
 use logslash::output::debug::DebugPort;
 use logslash::output::debug::*;
-use logslash::serialize::Serializer; use logslash::serialize::JsonEventSerializer;
+use logslash::serialize::Serializer;
+//use logslash::serialize::JsonEventSerializer;
 use logslash::serialize::JsonLogstashEventSerializer;
 
 use futures::{Future, Stream};
@@ -52,8 +53,8 @@ fn main() {
     let syslog = tcp_syslog_input(handle.clone(), &"127.0.0.1:5514".parse().unwrap());
     // syslog.rename() - need a future stream - Receiver is a Stream
 
-    //let print = debug_print(handle, JsonLogstashEventSerializer::default());
-    let print = debug_to_file(handle.clone(), File::create("/tmp/out").expect("falied to open out file"), JsonLogstashEventSerializer::default());
+    //let print = debug_print(JsonLogstashEventSerializer::default());
+    let print = debug_to_file(File::create("/tmp/out").expect("falied to open out file"), JsonLogstashEventSerializer::default());
 
     //TODO: input and ouptut need to provide some printable error when they fail
     let pipe = syslog.map(SyslogDebugPortEvent).forward(print)

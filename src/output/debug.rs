@@ -9,7 +9,7 @@ use tokio_core::reactor::Handle;
 use chrono::{DateTime, UTC};
 use PipeError;
 use serialize::Serializer;
-use output::write::write;
+use output::write::write_threaded;
 
 pub trait DebugPort {
     type Payload;
@@ -50,14 +50,14 @@ fn write_event<T, S>(event: &T, buf: &mut Vec<u8>, serializer: &S) -> Result<(),
         .map(|_| ())
 }
 
-pub fn debug_to_file<T, S, IE>(handle: Handle, file: File, serializer: S) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + 'static, S: Serializer<T::Payload> + 'static, IE: 'static {
-    write(handle, file, move |event: &T, buf: &mut Vec<u8>| {
+pub fn debug_to_file<T, S, IE>(file: File, serializer: S) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Send + 'static, S: Serializer<T::Payload> + Send + 'static, IE: 'static {
+    write_threaded(file, move |event: &T, buf: &mut Vec<u8>| {
         write_event(event, buf, &serializer)
     })
 }
 
-pub fn debug_print<T, S, IE>(handle: Handle, serializer: S) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + 'static, S: Serializer<T::Payload> + 'static, IE: 'static {
-    write(handle, stdout(), move |event: &T, buf: &mut Vec<u8>| {
+pub fn debug_print<T, S, IE>(serializer: S) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Send + 'static, S: Serializer<T::Payload> + Send + 'static, IE: 'static {
+    write_threaded(stdout(), move |event: &T, buf: &mut Vec<u8>| {
         write_event(event, buf, &serializer)
     })
 }
