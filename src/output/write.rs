@@ -122,18 +122,3 @@ pub fn write_blocking<T, W, IE, SE, F>(handle: Handle, out: W, serialize: F) -> 
         ok::<T, PipeError<IE, ()>>(message)
     }))
 }
-
-#[cfg(unix)]
-pub mod unix {
-    use super::*;
-    use std::os::unix::io::IntoRawFd;
-    use tokio_fd_io::unix::raw_fd_into_poll_evented;
-
-    // This is still blocking as File::from_raw_fd() cannot return WouldBlock
-    pub fn write_evented<T, O, IE, SE, F>(handle: Handle, out: O, serialize: F) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: 'static, IE: 'static, SE: Debug + Display + 'static, O: 'static + IntoRawFd, F: Fn(&T, &mut Vec<u8>) -> Result<(), SE> + 'static {
-        let evented_out = raw_fd_into_poll_evented(out.into_raw_fd(), &handle)
-            .expect("file descriptor does not support event polling");
-
-        write_blocking(handle, evented_out, serialize)
-    }
-}

@@ -27,9 +27,6 @@ version = "2.0.0"
 [dependencies.serde_json]
 git = "https://github.com/serde-rs/json.git"
 
-[dependencies.tokio-fd-io]
-path = "../tokio-fd-io"
-
 [dependencies.tokio-vec-io]
 path = "../tokio-vec-io"
 
