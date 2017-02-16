@@ -1,5 +1,5 @@
 use std::fmt::{Display, Debug};
-use std::io::Write;
+use std::io::{Write, BufWriter};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::mem::replace;
@@ -19,7 +19,7 @@ pub fn write_threaded<T, W, IE, SE, F>(out: W, serialize: F) -> Box<Sink<SinkIte
         let buf_cell_taker = buf_cell.clone();
         let buf_cell_putter = buf_cell.clone();
 
-        let out_cell = Rc::new(RefCell::new(Some(out)));
+        let out_cell = Rc::new(RefCell::new(Some(BufWriter::new(out))));
         let out_cell_taker = out_cell.clone();
         let out_cell_putter = out_cell.clone();
 
@@ -61,12 +61,15 @@ pub fn write_threaded<T, W, IE, SE, F>(out: W, serialize: F) -> Box<Sink<SinkIte
         pipe.wait().expect("write_threaded future failed");
     }).expect("failed to spawn thread for write_threaded");
 
+    // TODO: thread needs to be joined to make sure that file is synced at shutdown
+
     Box::new(sender.with(|message| {
         ok::<T, PipeError<IE, ()>>(message)
     }))
 }
 
-// This will block unless W can register events in event loop
+// This will block unless W can register events in event loop and
+// write can return Err(std::io::ErrorKind::WouldBlock) if it would block
 pub fn write_blocking<T, W, IE, SE, F>(handle: Handle, out: W, serialize: F) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: 'static, W: 'static, IE: 'static, SE: Debug + Display + 'static, W: Write, F: Fn(&T, &mut Vec<u8>) -> Result<(), SE> + 'static {
     let (sender, receiver): (Sender<T>, Receiver<T>) = channel(100);
 
@@ -74,7 +77,7 @@ pub fn write_blocking<T, W, IE, SE, F>(handle: Handle, out: W, serialize: F) -> 
     let buf_cell_taker = buf_cell.clone();
     let buf_cell_putter = buf_cell.clone();
 
-    let out_cell = Rc::new(RefCell::new(Some(out)));
+    let out_cell = Rc::new(RefCell::new(Some(BufWriter::new(out))));
     let out_cell_taker = out_cell.clone();
     let out_cell_putter = out_cell.clone();
 
@@ -126,6 +129,7 @@ pub mod unix {
     use std::os::unix::io::IntoRawFd;
     use tokio_fd_io::unix::raw_fd_into_poll_evented;
 
+    // This is still blocking as File::from_raw_fd() cannot return WouldBlock
     pub fn write_evented<T, O, IE, SE, F>(handle: Handle, out: O, serialize: F) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: 'static, IE: 'static, SE: Debug + Display + 'static, O: 'static + IntoRawFd, F: Fn(&T, &mut Vec<u8>) -> Result<(), SE> + 'static {
         let evented_out = raw_fd_into_poll_evented(out.into_raw_fd(), &handle)
             .expect("file descriptor does not support event polling");
