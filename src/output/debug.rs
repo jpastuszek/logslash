@@ -4,6 +4,9 @@ use std::borrow::Cow;
 use std::io::Write;
 use std::fs::File;
 use std::io::stdout;
+
+use slog::Logger;
+
 use futures::Sink;
 use chrono::{DateTime, UTC};
 use PipeError;
@@ -49,14 +52,14 @@ fn serialize_event<T, S>(event: &T, buf: &mut Vec<u8>, serializer: &S) -> Result
         .map(|_| ())
 }
 
-pub fn debug_to_file<T, S, IE>(file: File, serializer: S) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Send + 'static, S: Serializer<T::Payload> + Send + 'static, IE: 'static {
-    write_threaded(file, move |event: &T, buf: &mut Vec<u8>| {
+pub fn debug_to_file<T, S, IE>(logger: &Logger, file: File, serializer: S) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Send + 'static, S: Serializer<T::Payload> + Send + 'static, IE: 'static {
+    write_threaded(logger, "debug_to_file", file, move |event: &T, buf: &mut Vec<u8>| {
         serialize_event(event, buf, &serializer)
     })
 }
 
-pub fn debug_print<T, S, IE>(serializer: S) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Send + 'static, S: Serializer<T::Payload> + Send + 'static, IE: 'static {
-    write_threaded(stdout(), move |event: &T, buf: &mut Vec<u8>| {
+pub fn debug_print<T, S, IE>(logger: &Logger, serializer: S) -> Box<Sink<SinkItem=T, SinkError=PipeError<IE, ()>>> where T: DebugPort + Send + 'static, S: Serializer<T::Payload> + Send + 'static, IE: 'static {
+    write_threaded(logger, "debug_print", stdout(), move |event: &T, buf: &mut Vec<u8>| {
         serialize_event(event, buf, &serializer)
     })
 }

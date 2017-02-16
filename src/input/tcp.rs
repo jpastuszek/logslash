@@ -5,6 +5,8 @@ use std::fmt::{self, Debug, Display};
 use std::error::Error;
 use std::os::unix::io::AsRawFd;
 
+use slog::Logger;
+
 use futures::Future;
 use futures::stream::Stream;
 use futures::sync::mpsc;
@@ -58,34 +60,41 @@ impl<T: Debug> Error for TcpInputError<T> {
     }
 }
 
-pub fn tcp_input<C, T, OE>(name: &'static str, handle: Handle, addr: &SocketAddr, codec: C) -> Box<Stream<Item=T, Error=PipeError<(), OE>>> where C: Codec<In=T, Out=()> + Clone + 'static, T: Debug + 'static {
+pub fn tcp_input<C, T, OE>(logger: &Logger, name: &'static str, handle: Handle, addr: &SocketAddr, codec: C) -> Box<Stream<Item=T, Error=PipeError<(), OE>>> where C: Codec<In=T, Out=()> + Clone + 'static, T: Debug + 'static {
+    let logger = logger.new(o!("input" => name));
     let (sender, receiver) = mpsc::channel(10);
     let listener_handle = handle.clone();
 
     let listener = TcpListener::bind(addr, &handle).expect("bound TCP socket");
-    println!("[{}] Listening for TCP connections on {}", name, addr);
+    info!(&logger, "Listening for TCP connections"; "bound" => format!("{}", addr));
 
-    listener_handle.spawn(listener
+    let incoming_logger = logger.clone();
+    listener_handle.spawn(
+        listener
         .incoming()
         .for_each(move |(tcp_stream, remote_addr)| {
             let id = tcp_stream.as_raw_fd();
-            println!("[{}/{}] TCP connection from: {}", name, id, remote_addr);
+            let conn_logger = incoming_logger.new(o!("connection" => id, "remote" => format!("{}", remote_addr)));
+            info!(&conn_logger, "Accepted TCP connection");
+
+            let conn_err_logger = conn_logger.clone();
             let connection = sender.clone()
                 .with(|message| {
                     future::ok::<T, TcpInputError<T>>(message)
                 })
                 .send_all(tcp_stream.framed(codec.clone()))
                 .map_err(move |err| {
-                    println!("[{}/{}] Error while decoding input: {}", name, id, err);
+                    error!(&conn_err_logger, "Error while decoding input: {:?}", err);
                     ()})
                 .map(move |(_sink, _stream)| {
-                    println!("[{}/{}] TCP connection closed by remote", name, id);
+                    info!(&conn_logger, "TCP connection closed by remote");
                     ()});
+
             handle.spawn(connection);
             Ok(())
         })
         .map_err(move |err| {
-            println!("[{}] Error processing incomming TCP connections: {:?}", name, err);
+            error!(&logger, "Error processing incomming TCP connectionsi: {:?}", err);
             ()}));
 
     //TODO: provide error stream

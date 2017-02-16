@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate slog;
+extern crate slog_term;
 extern crate futures;
 extern crate tokio_core;
 #[macro_use]
@@ -24,6 +27,7 @@ use tokio_core::reactor::Core;
 use futures::sync::mpsc::SendError;
 use std::fmt::{self, Display, Debug};
 use std::error::Error;
+use slog::{DrainExt, Logger};
 
 #[derive(Debug)]
 pub enum PipeError<IE, OE> {
@@ -57,4 +61,11 @@ impl<IE, OE, T> From<SendError<T>> for PipeError<IE, OE> {
 
 pub fn event_loop() -> Core {
     Core::new().expect("Tokio Core event loop")
+}
+
+pub fn terminal_logger() -> Logger {
+    let drain = slog_term::streamer().build().fuse();
+    let root_logger = slog::Logger::root(drain, o!());
+    info!(root_logger, "Logging started");
+    root_logger
 }

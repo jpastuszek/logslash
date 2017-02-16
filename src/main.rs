@@ -1,8 +1,9 @@
-extern crate logslash;
+#[macro_use]
+extern crate slog; extern crate logslash;
 extern crate futures;
 extern crate chrono;
 
-use logslash::event_loop;
+use logslash::{terminal_logger, event_loop};
 use logslash::event::Event;
 use logslash::input::syslog::{SyslogEvent, tcp_syslog_input};
 use logslash::output::debug::DebugPort;
@@ -50,15 +51,20 @@ fn main() {
     let mut event_loop = event_loop();
     let handle = event_loop.handle();
 
-    let syslog = tcp_syslog_input(handle.clone(), &"127.0.0.1:5514".parse().unwrap());
+    let logger = terminal_logger();
+    info!(&logger, "Setting up pipline");
+
+    let syslog = tcp_syslog_input(&logger, handle.clone(), &"127.0.0.1:5514".parse().unwrap());
     // syslog.rename() - need a future stream - Receiver is a Stream
 
-    //let print = debug_print(JsonLogstashEventSerializer::default());
-    let print = debug_to_file(File::create("/tmp/out").expect("falied to open out file"), JsonLogstashEventSerializer::default());
+    //let print = debug_print(&logger, JsonLogstashEventSerializer::default());
+    let print = debug_to_file(&logger, File::create("/tmp/out").expect("falied to open out file"), JsonLogstashEventSerializer::default());
 
     //TODO: input and ouptut need to provide some printable error when they fail
     let pipe = syslog.map(SyslogDebugPortEvent).forward(print)
-        .map_err(|e| println!("Error while processing pipe: {:?}", e));
+        .map_err(|e| error!(&logger, "Error while processing pipe: {:?}", e));
 
+    info!(logger, "Running pipline");
     event_loop.run(pipe).expect("successful event loop run");
+    info!(logger, "Pipline done");
 }
