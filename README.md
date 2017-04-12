@@ -3,7 +3,9 @@ Goals
 * Fast
 * Precise parsing error messages with dumps etc.
 * Dead letter spool with message reprocessing tools
-* Programable * Input/filter/output library including syslog, Kafka, filed renaming, value mapping etc.
+* Programable
+* Input/output library including syslog, Kafka
+* Processing of messages that include: key and value mapping, filtering, regexing, moving etc.
 
 Design
 ===

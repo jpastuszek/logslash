@@ -69,3 +69,10 @@ pub fn terminal_logger() -> Logger {
     info!(root_logger, "Logging started");
     root_logger
 }
+
+pub fn null_logger() -> Logger {
+    let drain = slog::Discard;
+    let root_logger = slog::Logger::root(drain, o!());
+    info!(root_logger, "Logging started");
+    root_logger
+}

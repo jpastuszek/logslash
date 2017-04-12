@@ -19,10 +19,10 @@ use std::fs::File;
 use chrono::{DateTime, UTC};
 
 //TODO:
+// * benchmar for debug_to_file output
+// * use codec to serialize into buffer owned by Framed
 // * support for arbitary fileds in messages
-// * renames
 // * put events behind Rc to reduce copying?
-// * use structured logging
 // * proper nom errors with dumps etc
 // * reduce expect/unwrap for pipeline setup?
 // * parse common syslog messages
